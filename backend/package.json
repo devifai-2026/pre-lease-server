@@ -1,0 +1,13 @@
+{
+  "name": "pre-lease-server",
+  "version": "1.0.0",
+  "description": "pre lease node server",
+  "main": "index.js",
+  "repository": "https://github.com/devifai-2026/pre-lease-server.git",
+  "author": "subho'team",
+  "license": "MIT",
+  "private": true,
+  "dependencies": {
+    "express": "^5.2.1"
+  }
+}
