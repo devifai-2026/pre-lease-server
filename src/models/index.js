@@ -2,6 +2,7 @@ const { sequelize } = require('../config/dbConnection');
 const User = require('./user');
 const Permission = require('./permission');
 const UserRole = require('./userRole');
+const Token = require('./token');
 
 // Define associations
 User.hasMany(UserRole, {
@@ -19,4 +20,5 @@ module.exports = {
   User,
   Permission,
   UserRole,
+  Token,
 };
