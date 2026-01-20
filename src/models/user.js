@@ -1,12 +1,12 @@
-const { DataTypes } = require('sequelize');
-const { sequelize } = require('../config/dbConnection');
+const { DataTypes } = require("sequelize");
+const { sequelize } = require("../config/dbConnection");
 
 const User = sequelize.define(
-  'User',
+  "User",
   {
     userId: {
       type: DataTypes.UUID,
-      field: 'user_id',
+      field: "user_id",
       defaultValue: DataTypes.UUIDV4,
       primaryKey: true,
       allowNull: false,
@@ -48,9 +48,7 @@ const User = sequelize.define(
     },
   },
   {
-    tableName: 'users',
-    createdAt: 'created_at',
-    updatedAt: 'updated_at',
+    tableName: "users",
   }
 );
 

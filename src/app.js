@@ -8,14 +8,12 @@ const app = express();
 const NODE_ENV = process.env.NODE_ENV || "development";
 
 app.use(helmet());
-
 app.use(
   cors({
     origin: process.env.CORS_ORIGIN || "http://localhost:3000",
     credentials: true,
   })
 );
-
 app.use(express.json({ limit: "10mb" }));
 app.use(express.urlencoded({ extended: true, limit: "10mb" }));
 
@@ -36,6 +34,7 @@ app.get("/health", (req, res) => {
 const v1Routes = require("./routers/router");
 app.use("/api/v1", v1Routes);
 
+// 404 Handler - Must be after all routes
 app.use((req, res) => {
   res.status(404).json({
     success: false,
@@ -43,26 +42,35 @@ app.use((req, res) => {
   });
 });
 
-// Global Error Handler - Updated to work with createAppError
+// Global Error Handler - Must be last
 app.use((err, req, res, next) => {
-  // Log error for debugging
-  console.error(err.stack);
+  // Log error for debugging (only in development)
+  if (NODE_ENV === "development") {
+    console.error("Error:", err.stack);
+  } else {
+    console.error("Error:", err.message);
+  }
 
   // Get status code from error or default to 500
   const statusCode = err.statusCode || 500;
 
-  // Response object
+  // Base response object
   const response = {
     success: false,
     message: err.message || "Internal Server Error",
   };
+
+  // Add expired flag if present (for JWT token expiry)
+  if (err.expired) {
+    response.expired = true;
+  }
 
   // In development: show full error details
   if (NODE_ENV === "development") {
     response.stack = err.stack;
   }
 
-  // In production: hide details for operational errors
+  // In production: hide internal error details for security
   if (NODE_ENV === "production" && !err.isOperational) {
     response.message = "Internal Server Error";
   }

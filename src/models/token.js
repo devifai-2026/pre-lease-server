@@ -1,9 +1,9 @@
-const { DataTypes } = require('sequelize');
-const { sequelize } = require('../config/dbConnection');
-const jwt = require('jsonwebtoken');
+const { DataTypes } = require("sequelize");
+const { sequelize } = require("../config/dbConnection");
+const jwt = require("jsonwebtoken");
 
 const Token = sequelize.define(
-  'Token',
+  "Token",
   {
     tokenId: {
       type: DataTypes.UUID,
@@ -14,12 +14,12 @@ const Token = sequelize.define(
     userId: {
       type: DataTypes.UUID,
       allowNull: false,
-      field: 'user_id',
+      field: "user_id",
       references: {
-        model: 'users',
-        key: 'user_id',
+        model: "users",
+        key: "user_id",
       },
-      onDelete: 'CASCADE',
+      onDelete: "CASCADE",
     },
     refreshToken: {
       type: DataTypes.STRING(500),
@@ -62,9 +62,7 @@ const Token = sequelize.define(
     },
   },
   {
-    tableName: 'tokens',
-    freezeTableName: true,
-    underscored: true,
+    tableName: "tokens",
     timestamps: false,
   }
 );
@@ -97,31 +95,52 @@ Token.generateRefreshToken = (userId, roleName) => {
   );
 };
 
+// Static method: Verify Access Token
+Token.verifyAccessToken = (accessToken) => {
+  try {
+    const decoded = jwt.verify(accessToken, process.env.ACCESS_TOKEN_SECRET);
+    return { valid: true, decoded };
+  } catch (error) {
+    if (error.name === "TokenExpiredError") {
+      return { valid: false, message: "Access token expired", expired: true };
+    }
+    if (error.name === "JsonWebTokenError") {
+      return { valid: false, message: "Invalid access token" };
+    }
+    return { valid: false, message: error.message };
+  }
+};
+
 // Static method: Calculate expiry date from string like '30d', '7d', '24h'
-Token.calculateExpiryDate = expiryString => {
+Token.calculateExpiryDate = (expiryString) => {
   const match = expiryString.match(/^(\d+)([dhms])$/);
-  if (!match) throw new Error('Invalid expiry format. Use format like: 30d, 24h, 60m, 3600s');
+  if (!match)
+    throw new Error(
+      "Invalid expiry format. Use format like: 30d, 24h, 60m, 3600s"
+    );
 
   const value = parseInt(match[1]);
   const unit = match[2];
 
   const now = new Date();
   switch (unit) {
-    case 'd':
+    case "d":
       return new Date(now.getTime() + value * 24 * 60 * 60 * 1000);
-    case 'h':
+    case "h":
       return new Date(now.getTime() + value * 60 * 60 * 1000);
-    case 'm':
+    case "m":
       return new Date(now.getTime() + value * 60 * 1000);
-    case 's':
+    case "s":
       return new Date(now.getTime() + value * 1000);
     default:
-      throw new Error('Invalid time unit. Use: d (days), h (hours), m (minutes), s (seconds)');
+      throw new Error(
+        "Invalid time unit. Use: d (days), h (hours), m (minutes), s (seconds)"
+      );
   }
 };
 
 // Static method: Verify refresh token from database
-Token.verifyRefreshToken = async refreshToken => {
+Token.verifyRefreshToken = async (refreshToken) => {
   const tokenRecord = await Token.findOne({
     where: {
       refreshToken,
@@ -130,23 +149,23 @@ Token.verifyRefreshToken = async refreshToken => {
   });
 
   if (!tokenRecord) {
-    return { valid: false, message: 'Token not found or revoked' };
+    return { valid: false, message: "Token not found or revoked" };
   }
 
   if (new Date() > new Date(tokenRecord.expiresAt)) {
-    return { valid: false, message: 'Token expired' };
+    return { valid: false, message: "Token expired" };
   }
 
   try {
     const decoded = jwt.verify(refreshToken, process.env.REFRESH_TOKEN_SECRET);
     return { valid: true, token: tokenRecord, decoded };
   } catch (error) {
-    return { valid: false, message: 'Invalid token signature' };
+    return { valid: false, message: "Invalid token signature" };
   }
 };
 
 // Static method: Revoke specific token
-Token.revokeToken = async (refreshToken, reason = 'logout') => {
+Token.revokeToken = async (refreshToken, reason = "logout") => {
   const result = await Token.update(
     {
       isActive: false,
@@ -161,7 +180,7 @@ Token.revokeToken = async (refreshToken, reason = 'logout') => {
 };
 
 // Static method: Revoke all tokens for a user
-Token.revokeAllUserTokens = async (userId, reason = 'logout_all_devices') => {
+Token.revokeAllUserTokens = async (userId, reason = "logout_all_devices") => {
   const result = await Token.update(
     {
       isActive: false,

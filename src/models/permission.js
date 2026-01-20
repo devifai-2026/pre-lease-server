@@ -1,12 +1,12 @@
-const { DataTypes } = require('sequelize');
-const { sequelize } = require('../config/dbConnection');
+const { DataTypes } = require("sequelize");
+const { sequelize } = require("../config/dbConnection");
 
 const Permission = sequelize.define(
-  'Permission',
+  "Permission",
   {
     permissionId: {
       type: DataTypes.INTEGER,
-      field: 'permission_id',
+      field: "permission_id",
       primaryKey: true,
       autoIncrement: true,
       allowNull: false,
@@ -42,7 +42,7 @@ const Permission = sequelize.define(
     },
   },
   {
-    tableName: 'permissions',
+    tableName: "permissions",
     timestamps: false,
   }
 );
