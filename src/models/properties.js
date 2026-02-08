@@ -13,46 +13,60 @@ const Property = sequelize.define(
     ownerId: {
       type: DataTypes.UUID,
       allowNull: false,
-      field: "owner_id",
-      references: {
-        model: "users",
-        key: "user_id",
-      },
-      onDelete: "CASCADE",
+      // Foreign key managed by association in index.js
     },
-    // Basic Details
+    brokerId: {
+      type: DataTypes.UUID,
+      allowNull: true,
+      // Foreign key managed by association in index.js
+    },
+
+    // ========== BASIC PROPERTY DETAILS ==========
     propertyType: {
       type: DataTypes.STRING(50),
       allowNull: true,
     },
-    carpetAreaSqft: {
+    carpetArea: {
       type: DataTypes.DECIMAL(10, 2),
       allowNull: true,
     },
-    lastRefurbished: {
-      type: DataTypes.DATEONLY,
+    carpetAreaUnit: {
+      type: DataTypes.STRING(20),
+      allowNull: true,
+      defaultValue: "Sq. Feet",
+    },
+    completionYear: {
+      type: DataTypes.INTEGER,
       allowNull: true,
     },
-    ownershipType: {
-      type: DataTypes.STRING(50),
+    lastRefurbishedYear: {
+      type: DataTypes.INTEGER,
       allowNull: true,
     },
     buildingGrade: {
       type: DataTypes.STRING(20),
       allowNull: true,
     },
-    // Parking
-    parkingSlots: {
-      type: DataTypes.INTEGER,
-      allowNull: true,
-    },
-    parkingRatio: {
+    ownershipType: {
       type: DataTypes.STRING(50),
       allowNull: true,
     },
+
+    // Parking
+    parking4wheeler: {
+      type: DataTypes.INTEGER,
+      allowNull: true,
+      defaultValue: 0,
+    },
+    parking2wheeler: {
+      type: DataTypes.INTEGER,
+      allowNull: true,
+      defaultValue: 0,
+    },
+
     // Infrastructure
-    powerBackupKva: {
-      type: DataTypes.DECIMAL(10, 2),
+    powerBackup: {
+      type: DataTypes.STRING(20),
       allowNull: true,
     },
     numberOfLifts: {
@@ -64,14 +78,26 @@ const Property = sequelize.define(
       allowNull: true,
     },
     furnishingStatus: {
-      type: DataTypes.STRING(50),
-      allowNull: true,
-    },
-    buildingMaintainedBy: {
       type: DataTypes.STRING(100),
       allowNull: true,
     },
-    // Legal Details
+    maintainedById: {
+      type: DataTypes.INTEGER,
+      allowNull: true,
+      // Foreign key managed by association in index.js
+    },
+
+    // Description
+    description: {
+      type: DataTypes.TEXT,
+      allowNull: true,
+    },
+    additionalDescription: {
+      type: DataTypes.TEXT,
+      allowNull: true,
+    },
+
+    // ========== LEGAL & TITLE DETAILS ==========
     titleStatus: {
       type: DataTypes.STRING(50),
       allowNull: true,
@@ -97,7 +123,86 @@ const Property = sequelize.define(
       type: DataTypes.STRING(50),
       allowNull: true,
     },
-    // Location
+
+    // ========== LEASE & TENANT DETAILS ==========
+    tenantType: {
+      type: DataTypes.STRING(50),
+      allowNull: true,
+    },
+    leaseStartDate: {
+      type: DataTypes.DATEONLY,
+      allowNull: true,
+    },
+    leaseEndDate: {
+      type: DataTypes.DATEONLY,
+      allowNull: true,
+    },
+    lockInPeriodYears: {
+      type: DataTypes.INTEGER,
+      allowNull: true,
+    },
+    lockInPeriodMonths: {
+      type: DataTypes.INTEGER,
+      allowNull: true,
+    },
+    leaseDurationYears: {
+      type: DataTypes.DECIMAL(5, 2),
+      allowNull: true,
+    },
+
+    // Rental Details
+    rentType: {
+      type: DataTypes.STRING(20),
+      allowNull: true,
+      defaultValue: "Per Sq Ft",
+    },
+    rentPerSqftMonthly: {
+      type: DataTypes.DECIMAL(10, 2),
+      allowNull: true,
+    },
+    totalMonthlyRent: {
+      type: DataTypes.DECIMAL(12, 2),
+      allowNull: true,
+    },
+
+    // Security Deposit
+    securityDepositType: {
+      type: DataTypes.STRING(20),
+      allowNull: true,
+      defaultValue: "Months of Rent",
+    },
+    securityDepositMonths: {
+      type: DataTypes.INTEGER,
+      allowNull: true,
+    },
+    securityDepositAmount: {
+      type: DataTypes.DECIMAL(12, 2),
+      allowNull: true,
+    },
+
+    // Escalation & Maintenance
+    escalationFrequencyYears: {
+      type: DataTypes.DECIMAL(5, 2),
+      allowNull: true,
+    },
+    annualEscalationPercent: {
+      type: DataTypes.DECIMAL(5, 2),
+      allowNull: true,
+    },
+    maintenanceCostsIncluded: {
+      type: DataTypes.STRING(50),
+      allowNull: true,
+    },
+    maintenanceType: {
+      type: DataTypes.STRING(20),
+      allowNull: true,
+    },
+    maintenanceAmount: {
+      type: DataTypes.DECIMAL(10, 2),
+      allowNull: true,
+    },
+
+    // ========== LOCATION ==========
     microMarket: {
       type: DataTypes.STRING(100),
       allowNull: true,
@@ -110,7 +215,8 @@ const Property = sequelize.define(
       type: DataTypes.STRING(100),
       allowNull: true,
     },
-    // Market Intelligence
+
+    // ========== MARKET INTELLIGENCE ==========
     demandDrivers: {
       type: DataTypes.TEXT,
       allowNull: true,
@@ -119,16 +225,52 @@ const Property = sequelize.define(
       type: DataTypes.TEXT,
       allowNull: true,
     },
-    // Property Description
-    description: {
-      type: DataTypes.TEXT,
+
+    // ========== FINANCIAL ANALYTICS ==========
+    sellingPrice: {
+      type: DataTypes.DECIMAL(15, 2),
       allowNull: true,
     },
-    otherAmenities: {
-      type: DataTypes.TEXT,
+    propertyTaxAnnual: {
+      type: DataTypes.DECIMAL(12, 2),
       allowNull: true,
     },
-    // Metadata
+    insuranceAnnual: {
+      type: DataTypes.DECIMAL(12, 2),
+      allowNull: true,
+    },
+    otherCostsAnnual: {
+      type: DataTypes.DECIMAL(12, 2),
+      allowNull: true,
+    },
+    totalOperatingAnnualCosts: {
+      type: DataTypes.DECIMAL(12, 2),
+      allowNull: true,
+    },
+    additionalIncomeAnnual: {
+      type: DataTypes.DECIMAL(12, 2),
+      allowNull: true,
+    },
+
+    // Calculated Metrics
+    annualGrossRent: {
+      type: DataTypes.DECIMAL(12, 2),
+      allowNull: true,
+    },
+    grossRentalYield: {
+      type: DataTypes.DECIMAL(5, 2),
+      allowNull: true,
+    },
+    netRentalYield: {
+      type: DataTypes.DECIMAL(5, 2),
+      allowNull: true,
+    },
+    paybackPeriodYears: {
+      type: DataTypes.DECIMAL(5, 2),
+      allowNull: true,
+    },
+
+    // ========== METADATA ==========
     isActive: {
       type: DataTypes.BOOLEAN,
       allowNull: false,
@@ -137,8 +279,9 @@ const Property = sequelize.define(
   },
   {
     tableName: "properties",
-    freezeTableName: true,
-    timestamps: true,
+    // timestamps: true,    // ✅ Inherited from global config
+    // underscored: true,   // ✅ Inherited from global config
+    // freezeTableName: true, // ✅ Inherited from global config
   }
 );
 

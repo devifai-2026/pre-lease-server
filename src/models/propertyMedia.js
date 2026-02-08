@@ -13,12 +13,7 @@ const PropertyMedia = sequelize.define(
     propertyId: {
       type: DataTypes.UUID,
       allowNull: false,
-      field: "property_id",
-      references: {
-        model: "properties",
-        key: "property_id",
-      },
-      onDelete: "CASCADE",
+      // Foreign key managed by association in index.js
     },
     mediaType: {
       type: DataTypes.STRING(20),
@@ -39,8 +34,7 @@ const PropertyMedia = sequelize.define(
   },
   {
     tableName: "property_media",
-    freezeTableName: true,
-    timestamps: false,
+    timestamps: false, // ✅ Override: No timestamps (has uploadedAt)
   }
 );
 

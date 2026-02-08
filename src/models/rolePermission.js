@@ -1,36 +1,36 @@
 const { DataTypes } = require("sequelize");
 const { sequelize } = require("../config/dbConnection");
 
-const UserRole = sequelize.define(
-  "UserRole",
+const RolePermission = sequelize.define(
+  "RolePermission",
   {
-    userId: {
-      type: DataTypes.UUID,
-      allowNull: false,
-      primaryKey: true,
-      // Foreign key managed by association in index.js
-    },
     roleId: {
       type: DataTypes.INTEGER,
-      allowNull: false,
       primaryKey: true,
+      allowNull: false,
       // Foreign key managed by association in index.js
     },
-    assignedAt: {
+    permissionId: {
+      type: DataTypes.INTEGER,
+      primaryKey: true,
+      allowNull: false,
+      // Foreign key managed by association in index.js
+    },
+    grantedAt: {
       type: DataTypes.DATE,
       allowNull: false,
       defaultValue: DataTypes.NOW,
     },
-    assignedBy: {
+    grantedBy: {
       type: DataTypes.UUID,
       allowNull: true,
       // Foreign key managed by association in index.js
     },
   },
   {
-    tableName: "user_roles",
+    tableName: "role_permissions",
     timestamps: false, // ✅ Override: No timestamps
   }
 );
 
-module.exports = UserRole;
+module.exports = RolePermission;

@@ -1,33 +1,41 @@
 const { DataTypes } = require("sequelize");
 const { sequelize } = require("../config/dbConnection");
 
-const Permission = sequelize.define(
-  "Permission",
+const Role = sequelize.define(
+  "Role",
   {
-    permissionId: {
+    roleId: {
       type: DataTypes.INTEGER,
       primaryKey: true,
       autoIncrement: true,
       allowNull: false,
     },
-    code: {
-      type: DataTypes.STRING(100),
+    roleName: {
+      type: DataTypes.STRING(50),
       allowNull: false,
       unique: true,
+    },
+    roleType: {
+      type: DataTypes.STRING(20),
+      allowNull: false,
+      validate: {
+        isIn: [["client", "admin"]],
+      },
     },
     description: {
       type: DataTypes.TEXT,
       allowNull: true,
     },
-    category: {
-      type: DataTypes.STRING(50),
-      allowNull: true,
+    isActive: {
+      type: DataTypes.BOOLEAN,
+      allowNull: false,
+      defaultValue: true,
     },
   },
   {
-    tableName: "permissions",
+    tableName: "roles",
     updatedAt: false, // ✅ Override: No updatedAt column
   }
 );
 
-module.exports = Permission;
+module.exports = Role;

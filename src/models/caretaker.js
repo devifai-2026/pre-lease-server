@@ -1,33 +1,38 @@
 const { DataTypes } = require("sequelize");
 const { sequelize } = require("../config/dbConnection");
 
-const Permission = sequelize.define(
-  "Permission",
+const Caretaker = sequelize.define(
+  "Caretaker",
   {
-    permissionId: {
+    caretakerId: {
       type: DataTypes.INTEGER,
       primaryKey: true,
       autoIncrement: true,
       allowNull: false,
     },
-    code: {
-      type: DataTypes.STRING(100),
+    caretakerName: {
+      type: DataTypes.STRING(200),
       allowNull: false,
       unique: true,
     },
-    description: {
-      type: DataTypes.TEXT,
-      allowNull: true,
-    },
-    category: {
+    caretakerType: {
       type: DataTypes.STRING(50),
       allowNull: true,
     },
+    contactInfo: {
+      type: DataTypes.STRING(100),
+      allowNull: true,
+    },
+    isActive: {
+      type: DataTypes.BOOLEAN,
+      allowNull: false,
+      defaultValue: true,
+    },
   },
   {
-    tableName: "permissions",
+    tableName: "caretakers",
     updatedAt: false, // ✅ Override: No updatedAt column
   }
 );
 
-module.exports = Permission;
+module.exports = Caretaker;

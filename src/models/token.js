@@ -14,12 +14,7 @@ const Token = sequelize.define(
     userId: {
       type: DataTypes.UUID,
       allowNull: false,
-      field: "user_id",
-      references: {
-        model: "users",
-        key: "user_id",
-      },
-      onDelete: "CASCADE",
+      // Foreign key managed by association in index.js
     },
     refreshToken: {
       type: DataTypes.STRING(500),
@@ -63,35 +58,25 @@ const Token = sequelize.define(
   },
   {
     tableName: "tokens",
-    timestamps: false,
+    timestamps: false, // ✅ Override: No timestamps (has issuedAt instead)
   }
 );
 
 // Static method: Generate Access Token
 Token.generateAccessToken = (userId, roleName) => {
   return jwt.sign(
-    {
-      _id: userId,
-      role: roleName,
-    },
+    { _id: userId, role: roleName },
     process.env.ACCESS_TOKEN_SECRET,
-    {
-      expiresIn: process.env.ACCESS_TOKEN_EXPIRY,
-    }
+    { expiresIn: process.env.ACCESS_TOKEN_EXPIRY }
   );
 };
 
 // Static method: Generate Refresh Token (JWT)
 Token.generateRefreshToken = (userId, roleName) => {
   return jwt.sign(
-    {
-      _id: userId,
-      role: roleName,
-    },
+    { _id: userId, role: roleName },
     process.env.REFRESH_TOKEN_SECRET,
-    {
-      expiresIn: process.env.REFRESH_TOKEN_EXPIRY,
-    }
+    { expiresIn: process.env.REFRESH_TOKEN_EXPIRY }
   );
 };
 
@@ -121,8 +106,8 @@ Token.calculateExpiryDate = (expiryString) => {
 
   const value = parseInt(match[1]);
   const unit = match[2];
-
   const now = new Date();
+
   switch (unit) {
     case "d":
       return new Date(now.getTime() + value * 24 * 60 * 60 * 1000);
@@ -142,10 +127,7 @@ Token.calculateExpiryDate = (expiryString) => {
 // Static method: Verify refresh token from database
 Token.verifyRefreshToken = async (refreshToken) => {
   const tokenRecord = await Token.findOne({
-    where: {
-      refreshToken,
-      isActive: true,
-    },
+    where: { refreshToken, isActive: true },
   });
 
   if (!tokenRecord) {
@@ -167,33 +149,18 @@ Token.verifyRefreshToken = async (refreshToken) => {
 // Static method: Revoke specific token
 Token.revokeToken = async (refreshToken, reason = "logout") => {
   const result = await Token.update(
-    {
-      isActive: false,
-      revocationReason: reason,
-    },
-    {
-      where: { refreshToken },
-    }
+    { isActive: false, revocationReason: reason },
+    { where: { refreshToken } }
   );
-
   return result[0] > 0;
 };
 
 // Static method: Revoke all tokens for a user
 Token.revokeAllUserTokens = async (userId, reason = "logout_all_devices") => {
   const result = await Token.update(
-    {
-      isActive: false,
-      revocationReason: reason,
-    },
-    {
-      where: {
-        userId,
-        isActive: true,
-      },
-    }
+    { isActive: false, revocationReason: reason },
+    { where: { userId, isActive: true } }
   );
-
   return result[0];
 };
 

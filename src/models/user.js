@@ -6,18 +6,17 @@ const User = sequelize.define(
   {
     userId: {
       type: DataTypes.UUID,
-      field: "user_id",
       defaultValue: DataTypes.UUIDV4,
       primaryKey: true,
       allowNull: false,
     },
     firstName: {
       type: DataTypes.STRING(100),
-      allowNull: false,
+      allowNull: true,
     },
     lastName: {
       type: DataTypes.STRING(100),
-      allowNull: false,
+      allowNull: true,
     },
     mobileNumber: {
       type: DataTypes.STRING(20),
@@ -37,6 +36,24 @@ const User = sequelize.define(
       allowNull: true,
       unique: true,
     },
+    userType: {
+      type: DataTypes.STRING(20),
+      allowNull: false,
+      validate: {
+        isIn: [["client", "admin"]],
+      },
+    },
+
+    // OTP Authentication
+    otp: {
+      type: DataTypes.STRING(6),
+      allowNull: true,
+    },
+    otpExpiresAt: {
+      type: DataTypes.DATE,
+      allowNull: true,
+    },
+    // Status
     isActive: {
       type: DataTypes.BOOLEAN,
       allowNull: false,
@@ -49,6 +66,9 @@ const User = sequelize.define(
   },
   {
     tableName: "users",
+    // timestamps: true,    // ✅ Inherited from global config
+    // underscored: true,   // ✅ Inherited from global config
+    // freezeTableName: true, // ✅ Inherited from global config
   }
 );
 
