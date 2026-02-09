@@ -27,8 +27,8 @@ const Property = sequelize.define(
       allowNull: true,
       validate: {
         isIn: {
-          args: [["Offices", "Industrial", "Others"]],
-          msg: "Invalid property type",
+          args: [["Residential", "Retail", "Offices", "Industrial", "Others"]],
+          msg: "Invalid property type. Must be one of: Residential, Retail, Offices, Industrial, Others",
         },
       },
     },
@@ -42,8 +42,8 @@ const Property = sequelize.define(
       defaultValue: "Sq. Feet",
       validate: {
         isIn: {
-          args: [["Sq. Meters", "Sq. Feet"]],
-          msg: "Invalid property type",
+          args: [["Sq. Feet", "Sq. Meters"]],
+          msg: "Invalid carpet area unit. Must be 'Sq. Feet' or 'Sq. Meters'",
         },
       },
     },
@@ -58,19 +58,31 @@ const Property = sequelize.define(
     buildingGrade: {
       type: DataTypes.STRING(20),
       allowNull: true,
+      validate: {
+        isIn: {
+          args: [["A+", "A", "B+", "B", "C"]],
+          msg: "Invalid building grade. Must be one of: A+, A, B+, B, C",
+        },
+      },
     },
     ownershipType: {
       type: DataTypes.STRING(50),
       allowNull: true,
+      validate: {
+        isIn: {
+          args: [["Freehold", "Leasehold", "Jointly-hold", "Government Owned"]],
+          msg: "Invalid ownership type. Must be one of: Freehold, Leasehold, Jointly-hold, Government Owned",
+        },
+      },
     },
 
     // Parking
-    parkingFourWheeler: {
+    parkingTwoWheeler: {
       type: DataTypes.INTEGER,
       allowNull: true,
       defaultValue: 0,
     },
-    parkingTwoWheeler: {
+    parkingFourWheeler: {
       type: DataTypes.INTEGER,
       allowNull: true,
       defaultValue: 0,
@@ -80,6 +92,12 @@ const Property = sequelize.define(
     powerBackup: {
       type: DataTypes.STRING(20),
       allowNull: true,
+      validate: {
+        isIn: {
+          args: [["Yes", "No"]],
+          msg: "Invalid power backup value. Must be 'Yes' or 'No'",
+        },
+      },
     },
     numberOfLifts: {
       type: DataTypes.INTEGER,
@@ -88,10 +106,28 @@ const Property = sequelize.define(
     hvacType: {
       type: DataTypes.STRING(50),
       allowNull: true,
+      validate: {
+        isIn: {
+          args: [["Central AC", "Split AC", "VRF System"]],
+          msg: "Invalid HVAC type. Must be one of: Central AC, Split AC, VRF System",
+        },
+      },
     },
     furnishingStatus: {
       type: DataTypes.STRING(100),
       allowNull: true,
+      validate: {
+        isIn: {
+          args: [
+            [
+              "Fully Furnished by landowner",
+              "Semi-Furnished by landowner",
+              "Not Furnished by landowner",
+            ],
+          ],
+          msg: "Invalid furnishing status",
+        },
+      },
     },
     maintainedById: {
       type: DataTypes.INTEGER,
@@ -113,14 +149,32 @@ const Property = sequelize.define(
     titleStatus: {
       type: DataTypes.STRING(50),
       allowNull: true,
+      validate: {
+        isIn: {
+          args: [["No Litigation", "Pending Litigation"]],
+          msg: "Invalid title status. Must be 'No Litigation' or 'Pending Litigation'",
+        },
+      },
     },
     occupancyCertificate: {
       type: DataTypes.STRING(50),
       allowNull: true,
+      validate: {
+        isIn: {
+          args: [["Yes, available", "In Process", "Not available"]],
+          msg: "Invalid occupancy certificate status",
+        },
+      },
     },
     leaseRegistration: {
       type: DataTypes.STRING(50),
       allowNull: true,
+      validate: {
+        isIn: {
+          args: [["Registered Lease", "Notorized Lease", "No lease document"]],
+          msg: "Invalid lease registration status",
+        },
+      },
     },
     hasPendingLitigation: {
       type: DataTypes.BOOLEAN,
@@ -140,6 +194,12 @@ const Property = sequelize.define(
     tenantType: {
       type: DataTypes.STRING(50),
       allowNull: true,
+      validate: {
+        isIn: {
+          args: [["Government", "Startup", "MNC", "Corporate", "Others"]],
+          msg: "Invalid tenant type. Must be one of: Government, Startup, MNC, Corporate, Others",
+        },
+      },
     },
     leaseStartDate: {
       type: DataTypes.DATEONLY,
@@ -167,6 +227,12 @@ const Property = sequelize.define(
       type: DataTypes.STRING(20),
       allowNull: true,
       defaultValue: "Per Sq Ft",
+      validate: {
+        isIn: {
+          args: [["Per Sq Ft", "Lump Sum"]],
+          msg: "Invalid rent type. Must be 'Per Sq Ft' or 'Lump Sum'",
+        },
+      },
     },
     rentPerSqftMonthly: {
       type: DataTypes.DECIMAL(10, 2),
@@ -182,6 +248,12 @@ const Property = sequelize.define(
       type: DataTypes.STRING(20),
       allowNull: true,
       defaultValue: "Months of Rent",
+      validate: {
+        isIn: {
+          args: [["Months of Rent", "Lump Sum"]],
+          msg: "Invalid security deposit type. Must be 'Months of Rent' or 'Lump Sum'",
+        },
+      },
     },
     securityDepositMonths: {
       type: DataTypes.INTEGER,
@@ -204,10 +276,22 @@ const Property = sequelize.define(
     maintenanceCostsIncluded: {
       type: DataTypes.STRING(50),
       allowNull: true,
+      validate: {
+        isIn: {
+          args: [["Yes, included in rent", "No, excluded from rent"]],
+          msg: "Invalid maintenance costs option",
+        },
+      },
     },
     maintenanceType: {
       type: DataTypes.STRING(20),
       allowNull: true,
+      validate: {
+        isIn: {
+          args: [["Per Sq Ft", "Lump Sum"]],
+          msg: "Invalid maintenance type. Must be 'Per Sq Ft' or 'Lump Sum'",
+        },
+      },
     },
     maintenanceAmount: {
       type: DataTypes.DECIMAL(10, 2),
