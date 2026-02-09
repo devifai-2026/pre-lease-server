@@ -1,7 +1,8 @@
+// models/index.js
 const { sequelize } = require("../config/dbConnection");
 
 // ============================================
-// Import All Models
+// IMPORT ALL MODELS
 // ============================================
 const User = require("./user");
 const Role = require("./role");
@@ -20,10 +21,14 @@ const AuditLog = require("./auditLog");
 const ApiLog = require("./apiLog");
 
 // ============================================
-// Define Model Associations
+// DEFINE MODEL ASSOCIATIONS
 // ============================================
 
-// User ↔ Role (Many-to-Many through UserRole)
+// ============================================
+// USER ↔ ROLE (Many-to-Many)
+// A user can have multiple roles (Owner + Broker)
+// A role can be assigned to multiple users
+// ============================================
 User.belongsToMany(Role, {
   through: UserRole,
   foreignKey: "userId",
@@ -38,7 +43,10 @@ Role.belongsToMany(User, {
   as: "users",
 });
 
-// UserRole direct associations (for assignedBy)
+// ============================================
+// USER_ROLE DIRECT ASSOCIATIONS
+// For tracking who assigned the role
+// ============================================
 UserRole.belongsTo(User, {
   foreignKey: "userId",
   as: "user",
@@ -54,7 +62,11 @@ UserRole.belongsTo(User, {
   as: "assignedByUser",
 });
 
-// Role ↔ Permission (Many-to-Many through RolePermission)
+// ============================================
+// ROLE ↔ PERMISSION (Many-to-Many)
+// A role has multiple permissions (CRUD operations)
+// A permission can belong to multiple roles
+// ============================================
 Role.belongsToMany(Permission, {
   through: RolePermission,
   foreignKey: "roleId",
@@ -69,7 +81,10 @@ Permission.belongsToMany(Role, {
   as: "roles",
 });
 
-// RolePermission direct associations (for grantedBy)
+// ============================================
+// ROLE_PERMISSION DIRECT ASSOCIATIONS
+// For tracking who granted the permission
+// ============================================
 RolePermission.belongsTo(Role, {
   foreignKey: "roleId",
   as: "role",
@@ -85,7 +100,10 @@ RolePermission.belongsTo(User, {
   as: "grantedByUser",
 });
 
-// User ↔ Token (One-to-Many)
+// ============================================
+// USER ↔ TOKEN (One-to-Many)
+// A user can have multiple active tokens (access + refresh)
+// ============================================
 User.hasMany(Token, {
   foreignKey: "userId",
   as: "tokens",
@@ -96,7 +114,10 @@ Token.belongsTo(User, {
   as: "user",
 });
 
-// User ↔ Property (One-to-Many) - Owner
+// ============================================
+// USER ↔ PROPERTY - OWNER (One-to-Many)
+// A user (Owner) can own multiple properties
+// ============================================
 User.hasMany(Property, {
   foreignKey: "ownerId",
   as: "ownedProperties",
@@ -107,7 +128,10 @@ Property.belongsTo(User, {
   as: "owner",
 });
 
-// User ↔ Property (One-to-Many) - Broker
+// ============================================
+// USER ↔ PROPERTY - BROKER (One-to-Many)
+// A user (Broker) can list multiple properties
+// ============================================
 User.hasMany(Property, {
   foreignKey: "brokerId",
   as: "listedProperties",
@@ -118,7 +142,10 @@ Property.belongsTo(User, {
   as: "broker",
 });
 
-// Caretaker ↔ Property (One-to-Many)
+// ============================================
+// CARETAKER ↔ PROPERTY (One-to-Many)
+// A caretaker can maintain multiple properties
+// ============================================
 Caretaker.hasMany(Property, {
   foreignKey: "maintainedById",
   as: "properties",
@@ -129,7 +156,11 @@ Property.belongsTo(Caretaker, {
   as: "caretaker",
 });
 
-// Property ↔ Amenity (Many-to-Many through PropertyAmenity)
+// ============================================
+// PROPERTY ↔ AMENITY (Many-to-Many)
+// A property can have multiple amenities (gym, pool, etc.)
+// An amenity can be in multiple properties
+// ============================================
 Property.belongsToMany(Amenity, {
   through: PropertyAmenity,
   foreignKey: "propertyId",
@@ -144,7 +175,10 @@ Amenity.belongsToMany(Property, {
   as: "properties",
 });
 
-// PropertyAmenity direct associations
+// ============================================
+// PROPERTY_AMENITY DIRECT ASSOCIATIONS
+// For querying junction table directly
+// ============================================
 PropertyAmenity.belongsTo(Property, {
   foreignKey: "propertyId",
   as: "property",
@@ -155,7 +189,10 @@ PropertyAmenity.belongsTo(Amenity, {
   as: "amenity",
 });
 
-// Property ↔ PropertyCertification (One-to-Many)
+// ============================================
+// PROPERTY ↔ PROPERTY_CERTIFICATION (One-to-Many)
+// A property can have multiple certifications (LEED, IGBC, etc.)
+// ============================================
 Property.hasMany(PropertyCertification, {
   foreignKey: "propertyId",
   as: "certifications",
@@ -166,7 +203,10 @@ PropertyCertification.belongsTo(Property, {
   as: "property",
 });
 
-// Property ↔ PropertyConnectivity (One-to-Many)
+// ============================================
+// PROPERTY ↔ PROPERTY_CONNECTIVITY (One-to-Many)
+// A property can have multiple connectivity options (metro, airport, etc.)
+// ============================================
 Property.hasMany(PropertyConnectivity, {
   foreignKey: "propertyId",
   as: "connectivity",
@@ -177,7 +217,10 @@ PropertyConnectivity.belongsTo(Property, {
   as: "property",
 });
 
-// Property ↔ PropertyMedia (One-to-Many)
+// ============================================
+// PROPERTY ↔ PROPERTY_MEDIA (One-to-Many)
+// A property can have multiple media files (photos, videos)
+// ============================================
 Property.hasMany(PropertyMedia, {
   foreignKey: "propertyId",
   as: "media",
@@ -188,18 +231,46 @@ PropertyMedia.belongsTo(Property, {
   as: "property",
 });
 
-// User ↔ AuditLog (One-to-Many) - For updatedBy
+// ============================================
+// USER ↔ AUDIT_LOG (One-to-Many)
+// A user can perform multiple audited actions
+// Tracks who made the change
+// ============================================
 User.hasMany(AuditLog, {
-  foreignKey: "updatedBy",
+  foreignKey: "userId", // ✅ Fixed: was "updatedBy"
   as: "auditLogs",
 });
 
 AuditLog.belongsTo(User, {
-  foreignKey: "updatedBy",
-  as: "updatedByUser",
+  foreignKey: "userId",
+  as: "user", // ✅ Fixed: was "updatedByUser"
 });
 
-// User ↔ ApiLog (One-to-Many)
+// ============================================
+// PROPERTY ↔ AUDIT_LOG (One-to-Many)
+// A property can have multiple audit log entries
+// Tracks changes to specific property
+// ============================================
+Property.hasMany(AuditLog, {
+  foreignKey: "recordId",
+  as: "auditLogs", // ✅ Fixed: was "record"
+  constraints: false, // ✅ Added: Since recordId can reference multiple tables
+  scope: {
+    entityType: "Property", // ✅ Added: Filter by entity type
+  },
+});
+
+AuditLog.belongsTo(Property, {
+  foreignKey: "recordId",
+  as: "property", // ✅ Fixed: proper alias
+  constraints: false, // ✅ Added: Polymorphic relationship
+});
+
+// ============================================
+// USER ↔ API_LOG (One-to-Many)
+// A user can make multiple API requests
+// Tracks API usage per user
+// ============================================
 User.hasMany(ApiLog, {
   foreignKey: "userId",
   as: "apiLogs",
@@ -211,7 +282,7 @@ ApiLog.belongsTo(User, {
 });
 
 // ============================================
-// Export All Models
+// EXPORT ALL MODELS
 // ============================================
 module.exports = {
   sequelize,

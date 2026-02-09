@@ -12,7 +12,7 @@ const Property = sequelize.define(
     },
     ownerId: {
       type: DataTypes.UUID,
-      allowNull: false,
+      allowNull: true,
       // Foreign key managed by association in index.js
     },
     brokerId: {
@@ -25,6 +25,12 @@ const Property = sequelize.define(
     propertyType: {
       type: DataTypes.STRING(50),
       allowNull: true,
+      validate: {
+        isIn: {
+          args: [["Offices", "Industrial", "Others"]],
+          msg: "Invalid property type",
+        },
+      },
     },
     carpetArea: {
       type: DataTypes.DECIMAL(10, 2),
@@ -34,6 +40,12 @@ const Property = sequelize.define(
       type: DataTypes.STRING(20),
       allowNull: true,
       defaultValue: "Sq. Feet",
+      validate: {
+        isIn: {
+          args: [["Sq. Meters", "Sq. Feet"]],
+          msg: "Invalid property type",
+        },
+      },
     },
     completionYear: {
       type: DataTypes.INTEGER,
@@ -53,12 +65,12 @@ const Property = sequelize.define(
     },
 
     // Parking
-    parking4wheeler: {
+    parkingFourWheeler: {
       type: DataTypes.INTEGER,
       allowNull: true,
       defaultValue: 0,
     },
-    parking2wheeler: {
+    parkingTwoWheeler: {
       type: DataTypes.INTEGER,
       allowNull: true,
       defaultValue: 0,

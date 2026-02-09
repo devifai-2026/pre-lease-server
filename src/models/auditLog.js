@@ -1,61 +1,90 @@
+// models/auditLog.js
 const { DataTypes } = require("sequelize");
 const { sequelize } = require("../config/dbConnection");
 
+/**
+ * AuditLog Model
+ *
+ * Tracks all data modifications (INSERT, UPDATE, DELETE) across the system
+ * Stores both old and new values for compliance and recovery purposes
+ *
+ * Usage Pattern:
+ * - INSERT: oldValue = null, newValue = full new record
+ * - UPDATE: oldValue = changed fields before, newValue = changed fields after
+ * - DELETE: oldValue = full record before deletion, newValue = null
+ */
 const AuditLog = sequelize.define(
   "AuditLog",
   {
-    auditId: {
-      type: DataTypes.UUID,
-      defaultValue: DataTypes.UUIDV4,
+    auditLogId: {
+      type: DataTypes.INTEGER,
       primaryKey: true,
-      allowNull: false,
+      autoIncrement: true,
     },
 
-    // What changed
-    tableName: {
-      type: DataTypes.STRING(100),
+    // ============================================
+    // WHO - User who performed the action
+    // ============================================
+    userId: {
+      type: DataTypes.UUID,
       allowNull: false,
+      // Foreign key association defined in models/index.js
     },
-    recordId: {
-      type: DataTypes.STRING(255),
-      allowNull: false,
-    },
+
+    // ============================================
+    // WHAT - Type of operation performed
+    // ============================================
     operation: {
       type: DataTypes.STRING(20),
       allowNull: false,
+      comment: "Type of operation: INSERT, UPDATE, DELETE",
     },
 
-    // Field-level changes
-    fieldName: {
-      type: DataTypes.STRING(100),
-      allowNull: true,
-    },
-    previousValue: {
-      type: DataTypes.TEXT,
-      allowNull: true,
-    },
-    updatedValue: {
-      type: DataTypes.TEXT,
-      allowNull: true,
-    },
-
-    // Who & When
-    updatedBy: {
-      type: DataTypes.UUID,
-      allowNull: true,
-      // Foreign key managed by association in index.js
-    },
-    updatedAt: {
-      type: DataTypes.DATE,
+    // ============================================
+    // WHICH - Entity identification
+    // ============================================
+    entityType: {
+      type: DataTypes.STRING(50),
       allowNull: false,
-      defaultValue: DataTypes.NOW,
+      comment: "Type of entity modified (Property, User, etc.)",
     },
 
-    // Additional context
-    ipAddress: {
+    recordId: {
+      type: DataTypes.UUID,
+      allowNull: false,
+      comment: "ID of the affected record (property_id, user_id, etc.)",
+      // Foreign key association defined in models/index.js
+    },
+
+    // ============================================
+    // STATE - Before and after values
+    // ============================================
+    oldValue: {
+      type: DataTypes.JSONB,
+      allowNull: true,
+      comment: "Previous state (NULL for INSERT operations)",
+    },
+
+    newValue: {
+      type: DataTypes.JSONB,
+      allowNull: true,
+      comment: "New state (NULL for DELETE operations)",
+    },
+
+    // ============================================
+    // METADATA - Additional context
+    // ============================================
+    tableName: {
       type: DataTypes.STRING(50),
       allowNull: true,
+      comment: "Database table name (properties, users, etc.)",
     },
+
+    ipAddress: {
+      type: DataTypes.INET,
+      allowNull: true,
+    },
+
     userAgent: {
       type: DataTypes.TEXT,
       allowNull: true,
@@ -63,7 +92,7 @@ const AuditLog = sequelize.define(
   },
   {
     tableName: "audit_logs",
-    updatedAt: false, // ✅ Override: updatedAt is a data field, not auto-timestamp
+    updatedAt: false, // Audit logs are immutable (never updated)
   }
 );
 
