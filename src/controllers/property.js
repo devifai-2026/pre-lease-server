@@ -558,7 +558,463 @@ const updateProperty = asyncHandler((req, res, next) => {
   })().catch(next);
 });
 
+// ============================================
+// GET ALL AMENITIES
+// ============================================
+const getAllAmenities = asyncHandler((req, res, next) => {
+  const requestStartTime = Date.now();
+
+  const requestBodyLog = {
+    userId: req.user?.userId || null,
+    endpoint: "/api/amenities",
+  };
+
+  return (async () => {
+    try {
+      // Fetch only active amenities with minimal fields for dropdown
+      const amenities = await Amenity.findAll({
+        where: { isActive: true },
+        attributes: ["amenityId", "amenityName"],
+        order: [["amenityName", "ASC"]],
+        raw: true,
+      });
+
+      const responseData = {
+        success: true,
+        message: "Amenities fetched successfully",
+        data: amenities,
+        count: amenities.length,
+      };
+
+      // Log successful API request
+      await logRequest(
+        req,
+        {
+          userId: req.user?.userId || null,
+          status: 200,
+          body: {
+            success: true,
+            message: "Amenities fetched successfully",
+            count: amenities.length,
+          },
+          requestBodyLog,
+        },
+        requestStartTime,
+        next
+      );
+
+      return res.status(200).json(responseData);
+    } catch (error) {
+      // Log failed API request
+      await logRequest(
+        req,
+        {
+          userId: req.user?.userId || null,
+          status: error.statusCode || 500,
+          body: { success: false, message: error.message },
+          requestBodyLog,
+          error: error.message,
+          stackTrace: error.stack,
+        },
+        requestStartTime,
+        next
+      );
+
+      return next(error);
+    }
+  })().catch(next);
+});
+
+// ============================================
+// GET ALL CARETAKERS
+// ============================================
+const getAllCaretakers = asyncHandler((req, res, next) => {
+  const requestStartTime = Date.now();
+
+  const requestBodyLog = {
+    userId: req.user?.userId || null,
+    endpoint: "/api/caretakers",
+  };
+
+  return (async () => {
+    try {
+      // Fetch only active caretakers with minimal fields for dropdown
+      const caretakers = await Caretaker.findAll({
+        where: { isActive: true },
+        attributes: ["caretakerId", "caretakerName"],
+        order: [["caretakerName", "ASC"]],
+        raw: true,
+      });
+
+      const responseData = {
+        success: true,
+        message: "Caretakers fetched successfully",
+        data: caretakers,
+        count: caretakers.length,
+      };
+
+      // Log successful API request
+      await logRequest(
+        req,
+        {
+          userId: req.user?.userId || null,
+          status: 200,
+          body: {
+            success: true,
+            message: "Caretakers fetched successfully",
+            count: caretakers.length,
+          },
+          requestBodyLog,
+        },
+        requestStartTime,
+        next
+      );
+
+      return res.status(200).json(responseData);
+    } catch (error) {
+      // Log failed API request
+      await logRequest(
+        req,
+        {
+          userId: req.user?.userId || null,
+          status: error.statusCode || 500,
+          body: { success: false, message: error.message },
+          requestBodyLog,
+          error: error.message,
+          stackTrace: error.stack,
+        },
+        requestStartTime,
+        next
+      );
+
+      return next(error);
+    }
+  })().catch(next);
+});
+
+// ============================================
+// COMPARE PROPERTIES (PUBLIC - NO AUTH)
+// ============================================
+const compareProperties = asyncHandler((req, res, next) => {
+  const requestStartTime = Date.now();
+
+  const { propertyIds } = req.query; // ?propertyIds=id1,id2,id3
+
+  const requestBodyLog = {
+    endpoint: "/api/properties/compare",
+    propertyIds: propertyIds || null,
+    isPublic: true,
+  };
+
+  return (async () => {
+    try {
+      // Validate propertyIds parameter
+      if (!propertyIds) {
+        throw createAppError(
+          "propertyIds query parameter is required (comma-separated UUIDs)",
+          400
+        );
+      }
+
+      // Parse and validate property IDs
+      const propertyIdArray = propertyIds.split(",").map((id) => id.trim());
+
+      // Validate: must have 2-3 properties
+      if (propertyIdArray.length < 2) {
+        throw createAppError(
+          "At least 2 property IDs are required for comparison",
+          400
+        );
+      }
+
+      if (propertyIdArray.length > 3) {
+        throw createAppError(
+          "Maximum 3 properties can be compared at once",
+          400
+        );
+      }
+
+      // Validate UUID format (basic check)
+      const uuidRegex =
+        /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+      const invalidIds = propertyIdArray.filter((id) => !uuidRegex.test(id));
+
+      if (invalidIds.length > 0) {
+        throw createAppError(
+          `Invalid UUID format for property IDs: ${invalidIds.join(", ")}`,
+          400
+        );
+      }
+
+      // Fetch properties with related data
+      const properties = await Property.findAll({
+        where: {
+          propertyId: propertyIdArray,
+          isActive: true,
+        },
+        attributes: [
+          // Basic Info
+          "propertyId",
+          "propertyType",
+          "carpetArea",
+          "carpetAreaUnit",
+          "completionYear",
+          "lastRefurbishedYear",
+          "buildingGrade",
+          "ownershipType",
+
+          // Parking
+          "parkingTwoWheeler",
+          "parkingFourWheeler",
+
+          // Infrastructure
+          "powerBackup",
+          "numberOfLifts",
+          "hvacType",
+          "furnishingStatus",
+
+          // Legal
+          "titleStatus",
+          "occupancyCertificate",
+          "leaseRegistration",
+          "hasPendingLitigation",
+          "reraNumber",
+
+          // Lease Details
+          "tenantType",
+          "leaseStartDate",
+          "leaseEndDate",
+          "lockInPeriodYears",
+          "lockInPeriodMonths",
+          "leaseDurationYears",
+
+          // Rental
+          "rentType",
+          "rentPerSqftMonthly",
+          "totalMonthlyRent",
+          "securityDepositType",
+          "securityDepositMonths",
+          "securityDepositAmount",
+
+          // Escalation & Maintenance
+          "escalationFrequencyYears",
+          "annualEscalationPercent",
+          "maintenanceCostsIncluded",
+          "maintenanceType",
+          "maintenanceAmount",
+
+          // Location
+          "microMarket",
+          "city",
+          "state",
+
+          // Financial
+          "sellingPrice",
+          "propertyTaxAnnual",
+          "insuranceAnnual",
+          "otherCostsAnnual",
+          "totalOperatingAnnualCosts",
+          "additionalIncomeAnnual",
+          "annualGrossRent",
+          "grossRentalYield",
+          "netRentalYield",
+          "paybackPeriodYears",
+
+          // Description
+          "description",
+          "additionalDescription",
+        ],
+        include: [
+          {
+            model: Amenity,
+            as: "amenities",
+            attributes: ["amenityId", "amenityName"],
+            through: { attributes: [] },
+            where: { isActive: true },
+            required: false,
+          },
+          {
+            model: PropertyMedia,
+            as: "media",
+            attributes: ["mediaId", "mediaType", "fileUrl"],
+            required: false,
+            limit: 5, // Limit to first 5 images per property
+          },
+          {
+            model: Caretaker,
+            as: "caretaker",
+            attributes: ["caretakerId", "caretakerName"],
+            where: { isActive: true },
+            required: false,
+          },
+        ],
+        order: [
+          // Maintain the order of input IDs
+          [
+            sequelize.literal(
+              `CASE ${propertyIdArray
+                .map(
+                  (id, index) =>
+                    `WHEN "Property"."property_id" = '${id}' THEN ${index}`
+                )
+                .join(" ")} END`
+            ),
+          ],
+        ],
+      });
+
+      // Check if all requested properties were found
+      if (properties.length === 0) {
+        throw createAppError(
+          "No active properties found with provided IDs",
+          404
+        );
+      }
+
+      if (properties.length < propertyIdArray.length) {
+        const foundIds = properties.map((p) => p.propertyId);
+        const notFoundIds = propertyIdArray.filter(
+          (id) => !foundIds.includes(id)
+        );
+
+        // Log warning but continue with found properties
+        console.warn(
+          `Some properties not found or inactive: ${notFoundIds.join(", ")}`
+        );
+      }
+
+      // Build comparison response
+      const comparison = {
+        propertiesCompared: properties.length,
+        properties: properties.map((property) => ({
+          propertyId: property.propertyId,
+          basicInfo: {
+            propertyType: property.propertyType,
+            carpetArea: property.carpetArea,
+            carpetAreaUnit: property.carpetAreaUnit,
+            completionYear: property.completionYear,
+            lastRefurbishedYear: property.lastRefurbishedYear,
+            buildingGrade: property.buildingGrade,
+            ownershipType: property.ownershipType,
+          },
+          location: {
+            microMarket: property.microMarket,
+            city: property.city,
+            state: property.state,
+          },
+          parking: {
+            twoWheeler: property.parkingTwoWheeler,
+            fourWheeler: property.parkingFourWheeler,
+          },
+          infrastructure: {
+            powerBackup: property.powerBackup,
+            numberOfLifts: property.numberOfLifts,
+            hvacType: property.hvacType,
+            furnishingStatus: property.furnishingStatus,
+          },
+          legal: {
+            titleStatus: property.titleStatus,
+            occupancyCertificate: property.occupancyCertificate,
+            leaseRegistration: property.leaseRegistration,
+            hasPendingLitigation: property.hasPendingLitigation,
+            reraNumber: property.reraNumber,
+          },
+          leaseDetails: {
+            tenantType: property.tenantType,
+            leaseStartDate: property.leaseStartDate,
+            leaseEndDate: property.leaseEndDate,
+            lockInPeriod: {
+              years: property.lockInPeriodYears,
+              months: property.lockInPeriodMonths,
+            },
+            leaseDurationYears: property.leaseDurationYears,
+          },
+          rental: {
+            rentType: property.rentType,
+            rentPerSqftMonthly: property.rentPerSqftMonthly,
+            totalMonthlyRent: property.totalMonthlyRent,
+            securityDeposit: {
+              type: property.securityDepositType,
+              months: property.securityDepositMonths,
+              amount: property.securityDepositAmount,
+            },
+          },
+          escalationAndMaintenance: {
+            escalationFrequencyYears: property.escalationFrequencyYears,
+            annualEscalationPercent: property.annualEscalationPercent,
+            maintenanceCostsIncluded: property.maintenanceCostsIncluded,
+            maintenanceType: property.maintenanceType,
+            maintenanceAmount: property.maintenanceAmount,
+          },
+          financial: {
+            sellingPrice: property.sellingPrice,
+            propertyTaxAnnual: property.propertyTaxAnnual,
+            insuranceAnnual: property.insuranceAnnual,
+            otherCostsAnnual: property.otherCostsAnnual,
+            totalOperatingAnnualCosts: property.totalOperatingAnnualCosts,
+            additionalIncomeAnnual: property.additionalIncomeAnnual,
+            annualGrossRent: property.annualGrossRent,
+            grossRentalYield: property.grossRentalYield,
+            netRentalYield: property.netRentalYield,
+            paybackPeriodYears: property.paybackPeriodYears,
+          },
+          amenities: property.amenities || [],
+          media: property.media || [],
+          caretaker: property.caretaker || null,
+          description: property.description,
+          additionalDescription: property.additionalDescription,
+        })),
+      };
+
+      const responseData = {
+        success: true,
+        message: "Properties comparison fetched successfully",
+        data: comparison,
+      };
+
+      // Log successful API request
+      await logRequest(
+        req,
+        {
+          userId: null, // Public API - no user
+          status: 200,
+          body: {
+            success: true,
+            message: "Properties comparison fetched successfully",
+            propertiesFound: properties.length,
+          },
+          requestBodyLog,
+        },
+        requestStartTime,
+        next
+      );
+
+      return res.status(200).json(responseData);
+    } catch (error) {
+      // Log failed API request
+      await logRequest(
+        req,
+        {
+          userId: null, // Public API - no user
+          status: error.statusCode || 500,
+          body: { success: false, message: error.message },
+          requestBodyLog,
+          error: error.message,
+          stackTrace: error.stack,
+        },
+        requestStartTime,
+        next
+      );
+
+      return next(error);
+    }
+  })().catch(next);
+});
+
 module.exports = {
   createProperty,
   updateProperty,
+  getAllAmenities,
+  getAllCaretakers,
+  compareProperties,
 };
