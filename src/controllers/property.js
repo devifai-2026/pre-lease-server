@@ -1137,23 +1137,50 @@ const getAllProperties = asyncHandler((req, res, next) => {
         }
       }
 
-      // ✅ LOCATION FILTERS
+      // ✅ LOCATION FILTERS (Support both single and multiple values)
       if (city) {
-        whereClause.city = {
-          [Op.iLike]: `%${city}%`,
-        };
+        if (city.includes(",")) {
+          // Multiple cities - exact match for each
+          const citiesArray = city.split(",").map((c) => c.trim());
+          whereClause.city = {
+            [Op.in]: citiesArray,
+          };
+        } else {
+          // Single city - partial match (case-insensitive)
+          whereClause.city = {
+            [Op.iLike]: `%${city}%`,
+          };
+        }
       }
 
       if (state) {
-        whereClause.state = {
-          [Op.iLike]: `%${state}%`,
-        };
+        if (state.includes(",")) {
+          // Multiple states - exact match for each
+          const statesArray = state.split(",").map((s) => s.trim());
+          whereClause.state = {
+            [Op.in]: statesArray,
+          };
+        } else {
+          // Single state - partial match (case-insensitive)
+          whereClause.state = {
+            [Op.iLike]: `%${state}%`,
+          };
+        }
       }
 
       if (microMarket) {
-        whereClause.microMarket = {
-          [Op.iLike]: `%${microMarket}%`,
-        };
+        if (microMarket.includes(",")) {
+          // Multiple micro markets - exact match for each
+          const microMarketsArray = microMarket.split(",").map((m) => m.trim());
+          whereClause.microMarket = {
+            [Op.in]: microMarketsArray,
+          };
+        } else {
+          // Single micro market - partial match (case-insensitive)
+          whereClause.microMarket = {
+            [Op.iLike]: `%${microMarket}%`,
+          };
+        }
       }
 
       // ============================================
