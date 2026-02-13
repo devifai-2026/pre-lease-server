@@ -1,6 +1,6 @@
 const { ApiLog, AuditLog } = require("../models/index");
 const asyncHandler = require("./asyncHandler");
-
+//this should be in mongoDB
 // ============================================
 // HELPER: Log API Request (Success or Failure)
 // ============================================
