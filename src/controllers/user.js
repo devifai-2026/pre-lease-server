@@ -9,6 +9,7 @@ const createAppError = require("../utils/appError");
 const asyncHandler = require("../utils/asyncHandler");
 const { logRequest } = require("../utils/logs");
 const { sequelize } = require("../config/dbConnection");
+const { sendEncodedResponse } = require("../utils/responseEncoder");
 
 // ============================================
 // SIGNUP
@@ -181,15 +182,11 @@ const signup = asyncHandler((req, res, next) => {
         result.role.roleName
       );
 
-      const responseData = {
-        success: true,
-        message: "User created successfully",
-        data: {
-          userId: result.user.userId,
-          role: result.role.roleName,
-          accessToken,
-          refreshToken: result.refreshToken,
-        },
+      const data = {
+        userId: result.user.userId,
+        role: result.role.roleName,
+        accessToken,
+        refreshToken: result.refreshToken,
       };
 
       // ✅ Log successful API request
@@ -209,7 +206,13 @@ const signup = asyncHandler((req, res, next) => {
         next
       );
 
-      return res.status(201).json(responseData);
+      return sendEncodedResponse(
+        res,
+        201,
+        true,
+        "User created successfully",
+        data
+      );
     } catch (error) {
       // ✅ Log failed API request (keep email/mobile for support)
       await logRequest(
@@ -366,17 +369,13 @@ const login = asyncHandler((req, res, next) => {
         userRole.roleName
       );
 
-      const responseData = {
-        success: true,
-        message: "Login successfully",
-        data: {
-          userId: existingUser.userId,
-          role: userRole.roleName,
-          accessToken,
-          refreshToken,
-          name: `${existingUser.firstName} ${existingUser.lastName}`,
-          email: existingUser.email,
-        },
+      const data = {
+        userId: existingUser.userId,
+        role: userRole.roleName,
+        accessToken,
+        refreshToken,
+        name: `${existingUser.firstName} ${existingUser.lastName}`,
+        email: existingUser.email,
       };
 
       // ✅ Log successful API request
@@ -395,7 +394,7 @@ const login = asyncHandler((req, res, next) => {
         next
       );
 
-      return res.status(200).json(responseData);
+      return sendEncodedResponse(res, 200, true, "Login successfully", data);
     } catch (error) {
       // ✅ Log failed API request (keep mobile for support)
       await logRequest(

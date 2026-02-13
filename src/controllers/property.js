@@ -17,6 +17,7 @@ const {
   buildUpdateValues,
 } = require("../utils/logs");
 const { Op } = require("sequelize");
+const { sendEncodedResponse } = require("../utils/responseEncoder");
 
 // ============================================
 // CREATE PROPERTY
@@ -272,21 +273,17 @@ const createProperty = asyncHandler((req, res, next) => {
         };
       });
 
-      const responseData = {
-        success: true,
-        message: "Property created successfully",
-        data: {
-          propertyId: result.property.propertyId,
-          city: result.property.city,
-          state: result.property.state,
-          propertyType: result.property.propertyType,
-          createdBy: result.createdByRole,
-          ownerId: result.property.ownerId,
-          brokerId: result.property.brokerId,
-          caretakerId: result.property.caretakerId,
-          amenityCount: result.amenityCount,
-          mediaCount: result.media.length,
-        },
+      const data = {
+        propertyId: result.property.propertyId,
+        city: result.property.city,
+        state: result.property.state,
+        propertyType: result.property.propertyType,
+        createdBy: result.createdByRole,
+        ownerId: result.property.ownerId,
+        brokerId: result.property.brokerId,
+        caretakerId: result.property.caretakerId,
+        amenityCount: result.amenityCount,
+        mediaCount: result.media.length,
       };
 
       // Log successful API request
@@ -306,7 +303,13 @@ const createProperty = asyncHandler((req, res, next) => {
         next
       );
 
-      return res.status(201).json(responseData);
+      return sendEncodedResponse(
+        res,
+        201,
+        true,
+        "Property created successfully",
+        data
+      );
     } catch (error) {
       // Log failed API request
       await logRequest(
@@ -512,16 +515,12 @@ const updateProperty = asyncHandler((req, res, next) => {
         };
       });
 
-      const responseData = {
-        success: true,
-        message: "Property updated successfully",
-        data: {
-          propertyId: result.property.propertyId,
-          updatedBy: userRole,
-          updatedFields: result.updatedFields,
-          newMediaCount: result.newMedia.length,
-          amenitiesUpdated: result.amenitiesUpdated,
-        },
+      const data = {
+        propertyId: result.property.propertyId,
+        updatedBy: userRole,
+        updatedFields: result.updatedFields,
+        newMediaCount: result.newMedia.length,
+        amenitiesUpdated: result.amenitiesUpdated,
       };
 
       // Log successful API request
@@ -537,7 +536,13 @@ const updateProperty = asyncHandler((req, res, next) => {
         next
       );
 
-      return res.status(200).json(responseData);
+      return sendEncodedResponse(
+        res,
+        200,
+        true,
+        "Property updated successfully",
+        data
+      );
     } catch (error) {
       // Log failed API request
       await logRequest(
@@ -580,13 +585,6 @@ const getAllAmenities = asyncHandler((req, res, next) => {
         raw: true,
       });
 
-      const responseData = {
-        success: true,
-        message: "Amenities fetched successfully",
-        data: amenities,
-        count: amenities.length,
-      };
-
       // Log successful API request
       await logRequest(
         req,
@@ -604,7 +602,16 @@ const getAllAmenities = asyncHandler((req, res, next) => {
         next
       );
 
-      return res.status(200).json(responseData);
+      return sendEncodedResponse(
+        res,
+        200,
+        true,
+        "Amenities fetched successfully",
+        amenities,
+        {
+          count: amenities.length,
+        }
+      );
     } catch (error) {
       // Log failed API request
       await logRequest(
@@ -647,13 +654,6 @@ const getAllCaretakers = asyncHandler((req, res, next) => {
         raw: true,
       });
 
-      const responseData = {
-        success: true,
-        message: "Caretakers fetched successfully",
-        data: caretakers,
-        count: caretakers.length,
-      };
-
       // Log successful API request
       await logRequest(
         req,
@@ -671,7 +671,16 @@ const getAllCaretakers = asyncHandler((req, res, next) => {
         next
       );
 
-      return res.status(200).json(responseData);
+      return sendEncodedResponse(
+        res,
+        200,
+        true,
+        "Caretakers fetched successfully",
+        caretakers,
+        {
+          count: caretakers.length,
+        }
+      );
     } catch (error) {
       // Log failed API request
       await logRequest(
@@ -967,12 +976,6 @@ const compareProperties = asyncHandler((req, res, next) => {
         })),
       };
 
-      const responseData = {
-        success: true,
-        message: "Properties comparison fetched successfully",
-        data: comparison,
-      };
-
       // Log successful API request
       await logRequest(
         req,
@@ -990,7 +993,13 @@ const compareProperties = asyncHandler((req, res, next) => {
         next
       );
 
-      return res.status(200).json(responseData);
+      return sendEncodedResponse(
+        res,
+        200,
+        true,
+        "Properties comparison fetched successfully",
+        comparison
+      );
     } catch (error) {
       // Log failed API request
       await logRequest(
@@ -1331,33 +1340,6 @@ const getAllProperties = asyncHandler((req, res, next) => {
       const hasNextPage = pageNumber < totalPages;
       const hasPrevPage = pageNumber > 1;
 
-      const responseData = {
-        success: true,
-        message: "Properties fetched successfully",
-        data: propertiesWithTenure,
-        pagination: {
-          currentPage: pageNumber,
-          pageSize: pageSize,
-          totalItems: count,
-          totalPages: totalPages,
-          hasNextPage: hasNextPage,
-          hasPrevPage: hasPrevPage,
-        },
-        filters: {
-          applied: {
-            pricing: minPrice || maxPrice ? { minPrice, maxPrice } : null,
-            propertyTypes: propertyTypes || null,
-            rent: minRent || maxRent ? { minRent, maxRent } : null,
-            roi: minROI || maxROI ? { minROI, maxROI } : null,
-            tenure: minTenure || maxTenure ? { minTenure, maxTenure } : null,
-            location:
-              city || state || microMarket
-                ? { city, state, microMarket }
-                : null,
-          },
-        },
-      };
-
       // Log successful API request
       await logRequest(
         req,
@@ -1375,7 +1357,36 @@ const getAllProperties = asyncHandler((req, res, next) => {
         next
       );
 
-      return res.status(200).json(responseData);
+      return sendEncodedResponse(
+        res,
+        200,
+        true,
+        "Properties fetched successfully",
+        propertiesWithTenure,
+        {
+          pagination: {
+            currentPage: pageNumber,
+            pageSize: pageSize,
+            totalItems: count,
+            totalPages: totalPages,
+            hasNextPage: hasNextPage,
+            hasPrevPage: hasPrevPage,
+          },
+          filters: {
+            applied: {
+              pricing: minPrice || maxPrice ? { minPrice, maxPrice } : null,
+              propertyTypes: propertyTypes || null,
+              rent: minRent || maxRent ? { minRent, maxRent } : null,
+              roi: minROI || maxROI ? { minROI, maxROI } : null,
+              tenure: minTenure || maxTenure ? { minTenure, maxTenure } : null,
+              location:
+                city || state || microMarket
+                  ? { city, state, microMarket }
+                  : null,
+            },
+          },
+        }
+      );
     } catch (error) {
       // Log failed API request
       await logRequest(
