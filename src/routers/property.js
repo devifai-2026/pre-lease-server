@@ -9,7 +9,7 @@ const {
   getAllProperties,
 } = require("../controllers/property");
 const { authenticateUser, checkPermission } = require("../middlewares/auth");
-const uploadS3 = require("../middlewares/uploadS3");
+const { multerUpload, uploadToGCS } = require("../middlewares/uploadGCS");
 
 // ============================================
 // PROPERTY CRUD OPERATIONS
@@ -20,7 +20,8 @@ router.post(
   "/properties",
   authenticateUser,
   checkPermission("PROPERTY_CREATE"),
-  uploadS3.array("files", 10),
+  multerUpload.array("files", 10),
+  uploadToGCS,
   createProperty
 );
 
@@ -29,7 +30,8 @@ router.put(
   "/properties/:propertyId",
   authenticateUser,
   checkPermission("PROPERTY_UPDATE"),
-  uploadS3.array("files", 10),
+  multerUpload.array("files", 10),
+  uploadToGCS,
   updateProperty
 );
 

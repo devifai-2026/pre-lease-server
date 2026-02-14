@@ -20,6 +20,7 @@ const {
 } = require("../utils/logs");
 const { Op } = require("sequelize");
 const { sendEncodedResponse } = require("../utils/responseEncoder");
+const { attachSignedUrls } = require("../utils/gcsHelper");
 
 // ============================================
 // CREATE PROPERTY
@@ -264,7 +265,7 @@ const createProperty = asyncHandler((req, res, next) => {
                 {
                   propertyId: property.propertyId,
                   mediaType,
-                  fileUrl: file.location || file.path,
+                  fileUrl: file.gcsPath,
                 },
                 { transaction: t }
               );
@@ -588,7 +589,7 @@ const updateProperty = asyncHandler((req, res, next) => {
                 {
                   propertyId,
                   mediaType,
-                  fileUrl: file.location || file.path,
+                  fileUrl: file.gcsPath,
                 },
                 { transaction: t }
               );
@@ -1015,10 +1016,9 @@ const compareProperties = asyncHandler((req, res, next) => {
         );
       }
 
-      // Build comparison response
-      const comparison = {
-        propertiesCompared: properties.length,
-        properties: properties.map((property) => ({
+      // Build comparison response with signed URLs for media
+      const comparisonProperties = await Promise.all(
+        properties.map(async (property) => ({
           propertyId: property.propertyId,
           basicInfo: {
             propertyType: property.propertyType,
@@ -1091,11 +1091,16 @@ const compareProperties = asyncHandler((req, res, next) => {
             paybackPeriodYears: property.paybackPeriodYears,
           },
           amenities: property.amenities || [],
-          media: property.media || [],
+          media: await attachSignedUrls(property.media || []),
           caretaker: property.caretaker || null,
           description: property.description,
           additionalDescription: property.additionalDescription,
-        })),
+        }))
+      );
+
+      const comparison = {
+        propertiesCompared: properties.length,
+        properties: comparisonProperties,
       };
 
       // Log successful API request
@@ -1433,27 +1438,34 @@ const getAllProperties = asyncHandler((req, res, next) => {
       });
 
       // ============================================
-      // CALCULATE TENURE LEFT FOR EACH PROPERTY
+      // CALCULATE TENURE LEFT & GENERATE SIGNED URLS
       // ============================================
-      const propertiesWithTenure = properties.map((property) => {
-        const propertyData = property.toJSON();
+      const propertiesWithTenure = await Promise.all(
+        properties.map(async (property) => {
+          const propertyData = property.toJSON();
 
-        // Calculate tenure left if lease end date exists
-        if (propertyData.leaseEndDate) {
-          const now = new Date();
-          const leaseEnd = new Date(propertyData.leaseEndDate);
-          const diffTime = leaseEnd - now;
-          const diffYears = diffTime / (1000 * 60 * 60 * 24 * 365.25);
-          propertyData.tenureLeftYears = Math.max(
-            0,
-            parseFloat(diffYears.toFixed(2))
-          );
-        } else {
-          propertyData.tenureLeftYears = null;
-        }
+          // Calculate tenure left if lease end date exists
+          if (propertyData.leaseEndDate) {
+            const now = new Date();
+            const leaseEnd = new Date(propertyData.leaseEndDate);
+            const diffTime = leaseEnd - now;
+            const diffYears = diffTime / (1000 * 60 * 60 * 24 * 365.25);
+            propertyData.tenureLeftYears = Math.max(
+              0,
+              parseFloat(diffYears.toFixed(2))
+            );
+          } else {
+            propertyData.tenureLeftYears = null;
+          }
 
-        return propertyData;
-      });
+          // Generate signed URLs for media
+          if (propertyData.media && propertyData.media.length > 0) {
+            propertyData.media = await attachSignedUrls(propertyData.media);
+          }
+
+          return propertyData;
+        })
+      );
 
       // ============================================
       // PAGINATION METADATA
