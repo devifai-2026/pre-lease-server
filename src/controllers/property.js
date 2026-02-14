@@ -5,6 +5,8 @@ const {
   Caretaker,
   User,
   Role,
+  PropertyCertification,
+  PropertyConnectivity,
 } = require("../models"); // ✅ Removed AuditLog (using utility instead)
 const { sequelize } = require("../config/dbConnection");
 const createAppError = require("../utils/appError");
@@ -68,6 +70,14 @@ const createProperty = asyncHandler((req, res, next) => {
     // Amenities & Caretaker
     amenityIds,
     caretakerId,
+
+    // ✅ NEW: Connectivity Details (Array of objects)
+    // Format: [{ connectivityType: "Railway Station", name: "Mumbai Central", distanceKm: 2.5 }, ...]
+    connectivityDetails,
+
+    // ✅ NEW: Certifications (Array or object)
+    // Format: { rera: true, leed: true, igbc: false, others: ["ISO 9001", "Green Building"] }
+    certifications,
   } = req.body;
 
   // Prepare log-safe request body
@@ -82,6 +92,10 @@ const createProperty = asyncHandler((req, res, next) => {
     mediaCount: req.files ? req.files.length : 0,
     amenityCount: amenityIds ? amenityIds.length : 0,
     caretakerId: caretakerId || null,
+    connectivityCount: connectivityDetails ? connectivityDetails.length : 0, // ✅ Added
+    certificationsCount: certifications
+      ? Object.keys(certifications).filter((k) => certifications[k]).length
+      : 0, // ✅ Added
   };
 
   return (async () => {
@@ -116,7 +130,9 @@ const createProperty = asyncHandler((req, res, next) => {
 
       const userRole = userWithRole.roles[0].roleName;
 
-      // Validate caretaker exists if provided
+      // ============================================
+      // VALIDATION: Caretaker
+      // ============================================
       if (caretakerId) {
         const caretaker = await Caretaker.findOne({
           where: { caretakerId, isActive: true },
@@ -138,7 +154,35 @@ const createProperty = asyncHandler((req, res, next) => {
         }
       }
 
-      // Start transaction
+      // ============================================
+      // VALIDATION: Connectivity Details
+      // ============================================
+      if (connectivityDetails && !Array.isArray(connectivityDetails)) {
+        throw createAppError("connectivityDetails must be an array", 400);
+      }
+
+      // Validate each connectivity entry
+      if (connectivityDetails && connectivityDetails.length > 0) {
+        connectivityDetails.forEach((conn, index) => {
+          if (!conn.connectivityType) {
+            throw createAppError(
+              `Connectivity entry ${index + 1}: connectivityType is required`,
+              400
+            );
+          }
+          // Name and distance are optional but should be valid if provided
+          if (conn.distanceKm && isNaN(parseFloat(conn.distanceKm))) {
+            throw createAppError(
+              `Connectivity entry ${index + 1}: distanceKm must be a number`,
+              400
+            );
+          }
+        });
+      }
+
+      // ============================================
+      // START TRANSACTION
+      // ============================================
       const result = await sequelize.transaction(async (t) => {
         // Create property data
         const propertyData = {
@@ -228,7 +272,80 @@ const createProperty = asyncHandler((req, res, next) => {
           );
         }
 
-        // ✅ CREATE AUDIT LOG - Using utility function
+        // ============================================
+        // STEP 4: ✅ Create Connectivity Entries
+        // ============================================
+        let connectivityRecords = [];
+        if (connectivityDetails && connectivityDetails.length > 0) {
+          connectivityRecords = await Promise.all(
+            connectivityDetails.map((conn) =>
+              PropertyConnectivity.create(
+                {
+                  propertyId: property.propertyId,
+                  connectivityType: conn.connectivityType,
+                  name: conn.name || null,
+                  distanceKm: conn.distanceKm
+                    ? parseFloat(conn.distanceKm)
+                    : null,
+                },
+                { transaction: t }
+              )
+            )
+          );
+        }
+
+        // ============================================
+        // STEP 5: ✅ Create Certification Entries
+        // ============================================
+        let certificationRecords = [];
+        if (certifications) {
+          const certificationsToInsert = [];
+
+          // ============================================
+          // 5.1: Handle Predefined Certifications (RERA, LEED, IGBC)
+          // ============================================
+          const predefinedCerts = ["RERA", "LEED", "IGBC"];
+
+          for (const certType of predefinedCerts) {
+            const certKey = certType.toLowerCase();
+            if (certifications[certKey] === true) {
+              certificationsToInsert.push({
+                propertyId: property.propertyId,
+                certificationType: certType,
+                certificationDetails: null, // No details for checkbox certifications
+              });
+            }
+          }
+
+          // ============================================
+          // 5.2: Handle "Others" Certifications (Custom Text Input)
+          // ============================================
+          if (certifications.others && Array.isArray(certifications.others)) {
+            certifications.others.forEach((otherCert, index) => {
+              if (otherCert && otherCert.trim()) {
+                certificationsToInsert.push({
+                  propertyId: property.propertyId,
+                  certificationType: `OTHER_${index + 1}`, // ✅ Make unique for composite key
+                  certificationDetails: otherCert.trim(),
+                });
+              }
+            });
+          }
+
+          // ============================================
+          // 5.3: Bulk Insert All Certifications at Once
+          // ============================================
+          if (certificationsToInsert.length > 0) {
+            certificationRecords = await PropertyCertification.bulkCreate(
+              certificationsToInsert,
+              {
+                transaction: t,
+                validate: true, // ✅ Run validations
+              }
+            );
+          }
+        }
+
         await logInsert({
           userId: req.user.userId,
           entityType: "Property",
@@ -242,12 +359,6 @@ const createProperty = asyncHandler((req, res, next) => {
             carpetAreaSqft: property.carpetAreaSqft,
             ownershipType: property.ownershipType,
             buildingGrade: property.buildingGrade,
-            parkingSlots: property.parkingSlots,
-            parkingRatio: property.parkingRatio,
-            powerBackupKva: property.powerBackupKva,
-            numberOfLifts: property.numberOfLifts,
-            hvacType: property.hvacType,
-            furnishingStatus: property.furnishingStatus,
 
             // Ownership
             ownerId: property.ownerId,
@@ -258,6 +369,8 @@ const createProperty = asyncHandler((req, res, next) => {
             createdBy: userRole,
             amenityCount: amenityIds ? amenityIds.length : 0,
             mediaCount: mediaRecords.length,
+            connectivityCount: connectivityRecords.length, // ✅ Added
+            certificationCount: certificationRecords.length, // ✅ Added
           },
           tableName: "properties",
           ipAddress: req.ip,
@@ -269,10 +382,15 @@ const createProperty = asyncHandler((req, res, next) => {
           property,
           media: mediaRecords,
           amenityCount: amenityIds ? amenityIds.length : 0,
+          connectivityCount: connectivityRecords.length, // ✅ Added
+          certificationCount: certificationRecords.length, // ✅ Added
           createdByRole: userRole,
         };
       });
 
+      // ============================================
+      // PREPARE RESPONSE
+      // ============================================
       const data = {
         propertyId: result.property.propertyId,
         city: result.property.city,
@@ -284,9 +402,13 @@ const createProperty = asyncHandler((req, res, next) => {
         caretakerId: result.property.caretakerId,
         amenityCount: result.amenityCount,
         mediaCount: result.media.length,
+        connectivityCount: result.connectivityCount, // ✅ Added
+        certificationCount: result.certificationCount, // ✅ Added
       };
 
-      // Log successful API request
+      // ============================================
+      // LOG SUCCESSFUL REQUEST
+      // ============================================
       await logRequest(
         req,
         {

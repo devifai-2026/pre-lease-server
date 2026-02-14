@@ -2,8 +2,8 @@ const express = require("express");
 const helmet = require("helmet");
 const cors = require("cors");
 const morgan = require("morgan");
-const { testDbConnection } = require('./config/dbConnection');
-testDbConnection();
+// const { testDbConnection } = require("./config/dbConnection");
+// testDbConnection();
 const app = express();
 
 const NODE_ENV = process.env.NODE_ENV || "development";

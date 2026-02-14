@@ -69,7 +69,7 @@ const sendEncodedResponse = (
     data: encodeData(data), // Encode only the data field
     ...additionalFields, // Include pagination, filters, etc. as plain text
   };
-  // console.log(decodeData(response.data));
+  console.log(decodeData(response.data));
   return res.status(statusCode).json(response);
 };
 
