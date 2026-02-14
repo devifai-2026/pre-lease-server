@@ -8,6 +8,6 @@ const admin = require("./admin");
 
 router.use(user);
 router.use(property);
-router.use(admin);
+router.use("/admin", admin);
 
 module.exports = router;

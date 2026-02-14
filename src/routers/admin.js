@@ -5,6 +5,7 @@ const {
   updateUser,
   deleteUser,
   getAllUsers,
+  createSuperAdmin,
 } = require("../controllers/admin");
 const { authenticateUser, checkPermission } = require("../middlewares/auth");
 
@@ -59,5 +60,12 @@ router.delete(
   checkPermission("USER_DELETE"),
   deleteUser
 );
+
+/**
+ * @route   POST /api/v1/auth/create-super-admin
+ * @desc    Create first Super Admin account (one-time only, no password)
+ * @access  Public (requires secret key)
+ */
+router.post("/create-super-admin", createSuperAdmin);
 
 module.exports = router;

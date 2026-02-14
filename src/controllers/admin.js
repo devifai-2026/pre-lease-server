@@ -89,23 +89,6 @@ const createUser = asyncHandler((req, res, next) => {
         throw createAppError(`Invalid role: ${roleName}`, 400);
       }
 
-      // ============================================
-      // ✅ RESTRICTION: Super Admin can ONLY create admin roles
-      // ============================================
-      const allowedRoles = [
-        "Sales Executive",
-        "Sales Manager",
-        "Admin",
-        "Super Admin",
-      ];
-
-      if (!allowedRoles.includes(roleName)) {
-        throw createAppError(
-          `Super Admin can only create admin roles: ${allowedRoles.join(", ")}`,
-          403
-        );
-      }
-
       // Block client roles explicitly
       if (targetRole.roleType === "client") {
         throw createAppError(
@@ -741,9 +724,245 @@ const getAllUsers = asyncHandler((req, res, next) => {
   })().catch(next);
 });
 
+// ============================================
+// CREATE FIRST SUPER ADMIN (One-Time Only, No Password)
+// ============================================
+/**
+ * @desc    Create first Super Admin account (no authentication/password required)
+ * @route   POST /api/v1/auth/create-super-admin
+ * @access  Public (only works if no Super Admin exists)
+ */
+const createSuperAdmin = asyncHandler((req, res, next) => {
+  const requestStartTime = Date.now();
+
+  const {
+    firstName,
+    lastName,
+    email,
+    mobileNumber,
+    secretKey, // Extra security: require a secret key from .env
+  } = req.body;
+
+  const requestBodyLog = {
+    email,
+    mobileNumber,
+    firstName,
+    lastName,
+    hasSecretKey: !!secretKey,
+  };
+
+  return (async () => {
+    try {
+      // ============================================
+      // ✅ SECURITY CHECK 1: Secret Key Validation
+      // ============================================
+      const SUPER_ADMIN_SECRET = process.env.SUPER_ADMIN_CREATION_SECRET;
+
+      if (!SUPER_ADMIN_SECRET) {
+        throw createAppError(
+          "Super Admin creation is disabled. Set SUPER_ADMIN_CREATION_SECRET in .env",
+          403
+        );
+      }
+
+      if (secretKey !== SUPER_ADMIN_SECRET) {
+        throw createAppError("Invalid secret key", 403);
+      }
+
+      // ============================================
+      // ✅ SECURITY CHECK 2: Check if Super Admin already exists
+      // ============================================
+      const superAdminRole = await Role.findOne({
+        where: { roleName: "Super Admin", isActive: true },
+      });
+
+      if (!superAdminRole) {
+        throw createAppError("Super Admin role not found in database", 500);
+      }
+
+      const existingSuperAdmin = await User.findOne({
+        include: [
+          {
+            model: Role,
+            as: "roles",
+            where: { roleName: "Super Admin" },
+            through: { attributes: [] },
+          },
+        ],
+      });
+
+      if (existingSuperAdmin) {
+        throw createAppError(
+          "Super Admin already exists. Cannot create another one.",
+          409
+        );
+      }
+
+      // ============================================
+      // VALIDATION: Required Fields
+      // ============================================
+      const requiredFields = ["firstName", "lastName", "email", "mobileNumber"];
+      const missing = validateRequiredFields(requiredFields, req.body);
+      if (missing.length > 0) {
+        throw createAppError(
+          `Missing required fields: ${missing.join(", ")}`,
+          400
+        );
+      }
+
+      // ============================================
+      // VALIDATION: Email & Phone Format
+      // ============================================
+      if (!isValidEmail(email)) {
+        throw createAppError("Invalid email format", 400);
+      }
+
+      if (!isValidPhone(mobileNumber)) {
+        throw createAppError(
+          "Invalid mobile number. Must be 10 digits starting with 6-9",
+          400
+        );
+      }
+
+      // ============================================
+      // VALIDATION: Check if email/phone already exists
+      // ============================================
+      const existingUser = await User.findOne({
+        where: {
+          [Op.or]: [{ email }, { mobileNumber }],
+        },
+      });
+
+      if (existingUser) {
+        if (existingUser.email === email) {
+          throw createAppError("Email already exists", 409);
+        }
+        if (existingUser.mobileNumber === mobileNumber) {
+          throw createAppError("Mobile number already exists", 409);
+        }
+      }
+
+      // ============================================
+      // START TRANSACTION: Create Super Admin
+      // ============================================
+      const result = await sequelize.transaction(async (t) => {
+        // Create user (no password field)
+        const newSuperAdmin = await User.create(
+          {
+            firstName,
+            lastName,
+            email,
+            mobileNumber,
+            userType: "admin",
+            isActive: true,
+          },
+          { transaction: t }
+        );
+
+        // Assign Super Admin role
+        await UserRole.create(
+          {
+            userId: newSuperAdmin.userId,
+            roleId: superAdminRole.roleId,
+            assignedBy: null, // System-assigned
+          },
+          { transaction: t }
+        );
+
+        // ✅ CREATE AUDIT LOG
+        await logInsert({
+          userId: newSuperAdmin.userId,
+          entityType: "User",
+          recordId: newSuperAdmin.userId,
+          newRecord: {
+            userId: newSuperAdmin.userId,
+            email: newSuperAdmin.email,
+            mobileNumber: newSuperAdmin.mobileNumber,
+            firstName: newSuperAdmin.firstName,
+            lastName: newSuperAdmin.lastName,
+            userType: newSuperAdmin.userType,
+            roleName: "Super Admin",
+            createdBy: "SYSTEM",
+            note: "First Super Admin account created (passwordless)",
+          },
+          tableName: "users",
+          ipAddress: req.ip,
+          userAgent: req.headers["user-agent"],
+          transaction: t,
+        });
+
+        return {
+          user: newSuperAdmin,
+          role: superAdminRole,
+        };
+      });
+
+      // ============================================
+      // PREPARE RESPONSE
+      // ============================================
+      const data = {
+        userId: result.user.userId,
+        name: `${result.user.firstName} ${result.user.lastName}`,
+        email: result.user.email,
+        mobileNumber: result.user.mobileNumber,
+        role: result.role.roleName,
+      };
+
+      // ============================================
+      // LOG SUCCESS
+      // ============================================
+      await logRequest(
+        req,
+        {
+          userId: result.user.userId,
+          status: 201,
+          body: {
+            success: true,
+            message: "Super Admin account created successfully",
+          },
+          requestBodyLog: {
+            ...requestBodyLog,
+            createdUserId: result.user.userId,
+          },
+        },
+        requestStartTime,
+        next
+      );
+
+      return sendEncodedResponse(
+        res,
+        201,
+        true,
+        "Super Admin account created successfully",
+        data
+      );
+    } catch (error) {
+      // ============================================
+      // LOG FAILURE
+      // ============================================
+      await logRequest(
+        req,
+        {
+          userId: null,
+          status: error.statusCode || 500,
+          body: { success: false, message: error.message },
+          requestBodyLog,
+          error: error.message,
+          stackTrace: error.stack,
+        },
+        requestStartTime,
+        next
+      );
+
+      return next(error);
+    }
+  })().catch(next);
+});
+
 module.exports = {
   createUser,
   updateUser,
   deleteUser,
   getAllUsers,
+  createSuperAdmin,
 };
