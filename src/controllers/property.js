@@ -5,6 +5,7 @@ const {
   Caretaker,
   User,
   Role,
+  UserRole,
   PropertyCertification,
   PropertyConnectivity,
 } = require("../models");
@@ -265,6 +266,45 @@ const createProperty = asyncHandler(async (req, res, next) => {
       });
     }
 
+    const salesUsers = await User.findAll({
+      where: { isActive: true },
+      attributes: ["userId"],
+      include: [
+        {
+          model: Role,
+          as: "roles",
+          through: { attributes: [] },
+          where: { roleName: "Sales", isActive: true },
+          attributes: [],
+        },
+      ],
+    });
+
+    let assignedSalesId = null;
+    if (salesUsers.length > 0) {
+      const salesUserIds = salesUsers.map((u) => u.userId);
+      const propertyCounts = await Property.findAll({
+        where: { salesId: { [Op.in]: salesUserIds }, isActive: true },
+        attributes: [
+          "salesId",
+          [sequelize.fn("COUNT", sequelize.col("property_id")), "propertyCount"],
+        ],
+        group: ["salesId"],
+        raw: true,
+      });
+
+      const countMap = {};
+      propertyCounts.forEach((row) => {
+        countMap[row.salesId] = parseInt(row.propertyCount);
+      });
+
+      assignedSalesId = salesUserIds.reduce((minId, id) => {
+        const count = countMap[id] || 0;
+        const minCount = countMap[minId] || 0;
+        return count < minCount ? id : minId;
+      }, salesUserIds[0]);
+    }
+
     const result = await sequelize.transaction(async (t) => {
       const propertyData = {
         propertyType: propertyType || null,
@@ -334,6 +374,10 @@ const createProperty = asyncHandler(async (req, res, next) => {
       } else if (userRole === "Broker") {
         propertyData.brokerId = req.user.userId;
         propertyData.ownerId = null;
+      }
+
+      if (assignedSalesId) {
+        propertyData.salesId = assignedSalesId;
       }
 
       const property = await Property.create(propertyData, {
@@ -433,6 +477,7 @@ const createProperty = asyncHandler(async (req, res, next) => {
           buildingGrade: property.buildingGrade,
           ownerId: property.ownerId,
           brokerId: property.brokerId,
+          salesId: property.salesId,
           caretakerId: property.caretakerId,
           createdBy: userRole,
           amenityCount: amenityIds ? amenityIds.length : 0,
@@ -464,6 +509,7 @@ const createProperty = asyncHandler(async (req, res, next) => {
       createdBy: result.createdByRole,
       ownerId: result.property.ownerId,
       brokerId: result.property.brokerId,
+      salesId: result.property.salesId,
       caretakerId: result.property.caretakerId,
       amenityCount: result.amenityCount,
       mediaCount: result.media.length,

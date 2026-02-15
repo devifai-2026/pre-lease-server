@@ -734,22 +734,17 @@ const createSuperAdmin = asyncHandler(async (req, res, next) => {
 const assignProperty = asyncHandler(async (req, res, next) => {
   const requestStartTime = Date.now();
   const { propertyId } = req.params;
-  const { userId, assignAs } = req.body;
+  const { userId } = req.body;
 
   const requestBodyLog = {
     propertyId,
     targetUserId: userId,
-    assignAs,
     assignedBy: req.user.userId,
   };
 
   try {
-    if (!userId || !assignAs) {
-      throw createAppError("userId and assignAs are required", 400);
-    }
-
-    if (!["owner", "broker"].includes(assignAs)) {
-      throw createAppError("assignAs must be 'owner' or 'broker'", 400);
+    if (!userId) {
+      throw createAppError("userId is required", 400);
     }
 
     const property = await Property.findOne({
@@ -779,13 +774,12 @@ const assignProperty = asyncHandler(async (req, res, next) => {
     }
 
     const oldRecord = property.toJSON();
-    const updateField = assignAs === "owner" ? "ownerId" : "brokerId";
 
     const result = await sequelize.transaction(async (t) => {
-      await property.update({ [updateField]: userId }, { transaction: t });
+      await property.update({ salesId: userId }, { transaction: t });
 
       const { oldValues, newValues } = buildUpdateValues(oldRecord, {
-        [updateField]: userId,
+        salesId: userId,
       });
       newValues.assignedBy = req.user.userId;
 
@@ -809,7 +803,6 @@ const assignProperty = asyncHandler(async (req, res, next) => {
       const io = getIO();
       io.to(`user:${userId}`).emit("property:assigned", {
         propertyId,
-        assignedAs: assignAs,
         city: result.city,
         state: result.state,
         propertyType: result.propertyType,
@@ -822,9 +815,8 @@ const assignProperty = asyncHandler(async (req, res, next) => {
 
     const data = {
       propertyId,
-      [updateField]: userId,
+      salesId: userId,
       assignedTo: `${targetUser.firstName} ${targetUser.lastName}`,
-      assignedAs: assignAs,
     };
 
     await logRequest(
