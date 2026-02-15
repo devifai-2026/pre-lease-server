@@ -80,7 +80,10 @@ const uploadToGCS = async (req, res, next) => {
 
         blobStream.on("error", (err) => {
           reject(
-            createAppError(`Failed to upload ${file.originalname}: ${err.message}`, 500)
+            createAppError(
+              `Failed to upload ${file.originalname}: ${err.message}`,
+              500
+            )
           );
         });
 

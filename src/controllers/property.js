@@ -675,10 +675,7 @@ const updateProperty = asyncHandler(async (req, res, next) => {
         );
       }
 
-      const { oldValues, newValues } = buildUpdateValues(
-        oldRecord,
-        updateData
-      );
+      const { oldValues, newValues } = buildUpdateValues(oldRecord, updateData);
 
       if (amenityIds) {
         oldValues.amenityIds = oldAmenityIds;
@@ -914,10 +911,7 @@ const compareProperties = asyncHandler(async (req, res, next) => {
     }
 
     if (propertyIdArray.length > 3) {
-      throw createAppError(
-        "Maximum 3 properties can be compared at once",
-        400
-      );
+      throw createAppError("Maximum 3 properties can be compared at once", 400);
     }
 
     const uuidRegex =
@@ -1028,10 +1022,7 @@ const compareProperties = asyncHandler(async (req, res, next) => {
     });
 
     if (properties.length === 0) {
-      throw createAppError(
-        "No active properties found with provided IDs",
-        404
-      );
+      throw createAppError("No active properties found with provided IDs", 404);
     }
 
     if (properties.length < propertyIdArray.length) {

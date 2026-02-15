@@ -20,7 +20,11 @@ const Property = sequelize.define(
       allowNull: true,
       // Foreign key managed by association in index.js
     },
-
+    salesId: {
+      type: DataTypes.UUID,
+      allowNull: true,
+      // Foreign key managed by association in index.js
+    },
     // ========== BASIC PROPERTY DETAILS ==========
     propertyType: {
       type: DataTypes.STRING(50),

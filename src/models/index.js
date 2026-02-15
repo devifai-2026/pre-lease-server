@@ -50,8 +50,14 @@ Permission.belongsToMany(Role, {
 });
 
 RolePermission.belongsTo(Role, { foreignKey: "roleId", as: "role" });
-RolePermission.belongsTo(Permission, { foreignKey: "permissionId", as: "permission" });
-RolePermission.belongsTo(User, { foreignKey: "grantedBy", as: "grantedByUser" });
+RolePermission.belongsTo(Permission, {
+  foreignKey: "permissionId",
+  as: "permission",
+});
+RolePermission.belongsTo(User, {
+  foreignKey: "grantedBy",
+  as: "grantedByUser",
+});
 
 // User <-> Token (One-to-Many)
 User.hasMany(Token, { foreignKey: "userId", as: "tokens" });
@@ -65,9 +71,16 @@ Property.belongsTo(User, { foreignKey: "ownerId", as: "owner" });
 User.hasMany(Property, { foreignKey: "brokerId", as: "listedProperties" });
 Property.belongsTo(User, { foreignKey: "brokerId", as: "broker" });
 
+// User <-> Property - Sales Agent (One-to-Many)
+User.hasMany(Property, { foreignKey: "salesId", as: "salesProperties" });
+Property.belongsTo(User, { foreignKey: "salesId", as: "salesAgent" });
+
 // Caretaker <-> Property (One-to-Many)
 Caretaker.hasMany(Property, { foreignKey: "maintainedById", as: "properties" });
-Property.belongsTo(Caretaker, { foreignKey: "maintainedById", as: "caretaker" });
+Property.belongsTo(Caretaker, {
+  foreignKey: "maintainedById",
+  as: "caretaker",
+});
 
 // Property <-> Amenity (Many-to-Many)
 Property.belongsToMany(Amenity, {
@@ -84,16 +97,31 @@ Amenity.belongsToMany(Property, {
   as: "properties",
 });
 
-PropertyAmenity.belongsTo(Property, { foreignKey: "propertyId", as: "property" });
+PropertyAmenity.belongsTo(Property, {
+  foreignKey: "propertyId",
+  as: "property",
+});
 PropertyAmenity.belongsTo(Amenity, { foreignKey: "amenityId", as: "amenity" });
 
 // Property <-> PropertyCertification (One-to-Many)
-Property.hasMany(PropertyCertification, { foreignKey: "propertyId", as: "certifications" });
-PropertyCertification.belongsTo(Property, { foreignKey: "propertyId", as: "property" });
+Property.hasMany(PropertyCertification, {
+  foreignKey: "propertyId",
+  as: "certifications",
+});
+PropertyCertification.belongsTo(Property, {
+  foreignKey: "propertyId",
+  as: "property",
+});
 
 // Property <-> PropertyConnectivity (One-to-Many)
-Property.hasMany(PropertyConnectivity, { foreignKey: "propertyId", as: "connectivity" });
-PropertyConnectivity.belongsTo(Property, { foreignKey: "propertyId", as: "property" });
+Property.hasMany(PropertyConnectivity, {
+  foreignKey: "propertyId",
+  as: "connectivity",
+});
+PropertyConnectivity.belongsTo(Property, {
+  foreignKey: "propertyId",
+  as: "property",
+});
 
 // Property <-> PropertyMedia (One-to-Many)
 Property.hasMany(PropertyMedia, { foreignKey: "propertyId", as: "media" });
