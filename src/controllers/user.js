@@ -244,6 +244,9 @@ const signup = asyncHandler(async (req, res, next) => {
       role: result.role.roleName,
       accessToken,
       refreshToken: result.refreshToken,
+      name: `${result.user.firstName} ${result.user.lastName}`,
+      email: result.user.email,
+      mobileNumber: result.user.mobileNumber,
     };
 
     // ✅ Log successful API request
@@ -456,6 +459,7 @@ const login = asyncHandler(async (req, res, next) => {
       refreshToken,
       name: `${existingUser.firstName} ${existingUser.lastName}`,
       email: existingUser.email,
+      mobileNumber: existingUser.mobileNumber,
     };
 
     // ✅ Log successful API request
