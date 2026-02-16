@@ -10,9 +10,15 @@ const {
   getAssignedProperties,
 } = require("../controllers/property");
 const {
+  createInvestorNotes,
+  getAllPropertiesWithNotes,
+  getPropertyWithNotes,
+} = require("../controllers/notes");
+const {
   authenticateUser,
   checkPermission,
   checkSalesPerson,
+  checkRole,
 } = require("../middlewares/auth");
 const { multerUpload, uploadToGCS } = require("../middlewares/uploadGCS");
 
@@ -66,6 +72,38 @@ router.get(
   authenticateUser,
   checkSalesPerson, // Only sales roles
   getAssignedProperties
+);
+
+// ============================================
+// INVESTOR NOTES (Investor Role)
+// ============================================
+
+// ✅ Create/Add notes for a property (Investor only)
+router.post(
+  "/properties/:propertyId/notes",
+  authenticateUser,
+  checkRole(["Investor"]),
+  createInvestorNotes
+);
+
+// ============================================
+// SALES AGENT NOTES VIEWING (Sales Manager/Executive)
+// ============================================
+
+// ✅ Get all properties with investor notes (assigned to logged-in sales agent)
+router.get(
+  "/properties/investor-notes",
+  authenticateUser,
+  checkRole(["Sales Manager", "Sales Executive"]),
+  getAllPropertiesWithNotes
+);
+
+// ✅ Get specific property with all investor notes (assigned to logged-in sales agent)
+router.get(
+  "/properties/:propertyId/investor-notes",
+  authenticateUser,
+  checkRole(["Sales Manager", "Sales Executive"]),
+  getPropertyWithNotes
 );
 
 module.exports = router;

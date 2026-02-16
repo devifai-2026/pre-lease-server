@@ -51,58 +51,33 @@ const PropertyInvestorNote = sequelize.define(
 // ============================================
 
 /**
- * Add a new note to the notes array
+ * Add/Push new notes to existing array
  * @param {Object} noteRecord - The PropertyInvestorNote instance
- * @param {String} noteText - The note content
- * @param {String} investorId - UUID of the investor creating the note
- * @returns {Object} The newly created note
+ * @param {Array} newNotesArray - Array of new notes to push [{note: "...", createdAt: "..."}, ...]
+ * @returns {Array} The newly added notes
  */
-PropertyInvestorNote.addNote = function (noteRecord, noteText, investorId) {
-  const newNote = {
-    noteId: uuidv4(),
-    noteText: noteText,
-    createdAt: new Date().toISOString(),
-    createdBy: investorId,
-  };
-
-  noteRecord.notes = [...noteRecord.notes, newNote];
-  noteRecord.totalNotesCount = noteRecord.notes.length;
-
-  return newNote;
-};
-
-/**
- * Get a specific note by ID
- * @param {Object} noteRecord - The PropertyInvestorNote instance
- * @param {String} noteId - UUID of the note
- * @returns {Object|null} The note object or null if not found
- */
-PropertyInvestorNote.getNoteById = function (noteRecord, noteId) {
-  return noteRecord.notes.find((note) => note.noteId === noteId) || null;
-};
-
-/**
- * Update a note's text
- * @param {Object} noteRecord - The PropertyInvestorNote instance
- * @param {String} noteId - UUID of the note to update
- * @param {String} newNoteText - New text content
- * @returns {Object|null} Updated note or null if not found
- */
-PropertyInvestorNote.updateNote = function (noteRecord, noteId, newNoteText) {
-  const noteIndex = noteRecord.notes.findIndex((n) => n.noteId === noteId);
-
-  if (noteIndex === -1) {
-    return null;
+PropertyInvestorNote.pushNotes = function (noteRecord, newNotesArray) {
+  if (!Array.isArray(newNotesArray)) {
+    throw new Error("newNotesArray must be an array");
   }
 
-  noteRecord.notes[noteIndex] = {
-    ...noteRecord.notes[noteIndex],
-    noteText: newNoteText,
-    updatedAt: new Date().toISOString(),
-  };
-
+  // Add to existing notes array
+  noteRecord.notes = [...noteRecord.notes, ...newNotesArray];
+  noteRecord.totalNotesCount = noteRecord.notes.length;
   noteRecord.changed("notes", true);
-  return noteRecord.notes[noteIndex];
+
+  return newNotesArray;
+};
+
+/**
+ * Get all notes sorted by latest first
+ * @param {Object} noteRecord - The PropertyInvestorNote instance
+ * @returns {Array} Array of note objects
+ */
+PropertyInvestorNote.getAllNotes = function (noteRecord) {
+  return noteRecord.notes.sort(
+    (a, b) => new Date(b.createdAt) - new Date(a.createdAt)
+  );
 };
 
 module.exports = PropertyInvestorNote;
