@@ -69,7 +69,10 @@ const authenticateUser = asyncHandler(async (req, res, next) => {
     firstName: user.firstName,
     lastName: user.lastName,
     userType: user.userType,
-    role: user.roles[0].roleName, // Primary role (first in array)
+    role:
+      decoded.role && user.roles.some((r) => r.roleName === decoded.role)
+        ? decoded.role
+        : user.roles[0].roleName, // Respect JWT role if valid, fallback to first
     roles: user.roles, // Full roles array for permission checks
   };
 

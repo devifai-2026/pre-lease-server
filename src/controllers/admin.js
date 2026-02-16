@@ -807,7 +807,7 @@ const createSuperAdmin = asyncHandler(async (req, res, next) => {
   }
 });
 
-const assignProperty = asyncHandler(async (req, res, next) => {
+const reassignProperty = asyncHandler(async (req, res, next) => {
   const requestStartTime = Date.now();
   const { propertyId } = req.params;
   const { userId } = req.body;
@@ -815,7 +815,8 @@ const assignProperty = asyncHandler(async (req, res, next) => {
   const requestBodyLog = {
     propertyId,
     targetUserId: userId,
-    assignedBy: req.user.userId,
+    reassignedBy: req.user.userId,
+    reassignerRole: req.user.role,
   };
 
   try {
@@ -831,6 +832,29 @@ const assignProperty = asyncHandler(async (req, res, next) => {
       throw createAppError("Property not found", 404);
     }
 
+    const isSalesPerson = ["Sales Manager", "Sales Executive"].includes(
+      req.user.role
+    );
+    const isAdmin = ["Admin", "Super Admin"].includes(req.user.role);
+
+    if (isSalesPerson) {
+      if (property.salesId !== req.user.userId) {
+        throw createAppError(
+          "You can only reassign properties assigned to you",
+          403
+        );
+      }
+    } else if (!isAdmin) {
+      throw createAppError(
+        "You do not have permission to reassign properties",
+        403
+      );
+    }
+
+    if (userId === property.salesId) {
+      throw createAppError("Property is already assigned to this user", 400);
+    }
+
     const targetUser = await User.findOne({
       where: { userId, isActive: true },
       attributes: ["userId", "firstName", "lastName", "email"],
@@ -840,15 +864,23 @@ const assignProperty = asyncHandler(async (req, res, next) => {
           as: "roles",
           through: { attributes: [] },
           attributes: ["roleName"],
-          where: { isActive: true },
+          where: {
+            roleName: { [Op.in]: ["Sales Manager", "Sales Executive"] },
+            isActive: true,
+          },
+          required: true,
         },
       ],
     });
 
     if (!targetUser) {
-      throw createAppError("Target user not found or inactive", 404);
+      throw createAppError(
+        "Target user not found, inactive, or not a Sales Manager/Executive",
+        404
+      );
     }
 
+    const oldSalesId = property.salesId;
     const oldRecord = property.toJSON();
 
     const result = await sequelize.transaction(async (t) => {
@@ -857,7 +889,7 @@ const assignProperty = asyncHandler(async (req, res, next) => {
       const { oldValues, newValues } = buildUpdateValues(oldRecord, {
         salesId: userId,
       });
-      newValues.assignedBy = req.user.userId;
+      newValues.reassignedBy = req.user.userId;
 
       await logUpdate({
         userId: req.user.userId,
@@ -874,7 +906,6 @@ const assignProperty = asyncHandler(async (req, res, next) => {
       return property;
     });
 
-    // Emit WebSocket notification to the assigned user
     try {
       const io = getIO();
       io.to(`user:${userId}`).emit("property:assigned", {
@@ -885,14 +916,26 @@ const assignProperty = asyncHandler(async (req, res, next) => {
         assignedBy: req.user.userId,
         timestamp: new Date().toISOString(),
       });
+      if (oldSalesId && oldSalesId !== req.user.userId) {
+        io.to(`user:${oldSalesId}`).emit("property:unassigned", {
+          propertyId,
+          city: result.city,
+          state: result.state,
+          propertyType: result.propertyType,
+          reassignedBy: req.user.userId,
+          reassignedTo: userId,
+          timestamp: new Date().toISOString(),
+        });
+      }
     } catch (socketErr) {
       console.error("Socket notification failed:", socketErr.message);
     }
 
     const data = {
       propertyId,
-      salesId: userId,
-      assignedTo: `${targetUser.firstName} ${targetUser.lastName}`,
+      previousSalesId: oldSalesId,
+      newSalesId: userId,
+      reassignedTo: `${targetUser.firstName} ${targetUser.lastName}`,
     };
 
     await logRequest(
@@ -900,7 +943,10 @@ const assignProperty = asyncHandler(async (req, res, next) => {
       {
         userId: req.user.userId,
         status: 200,
-        body: { success: true, message: "Property assigned successfully" },
+        body: {
+          success: true,
+          message: "Property reassigned successfully",
+        },
         requestBodyLog,
       },
       requestStartTime
@@ -910,7 +956,7 @@ const assignProperty = asyncHandler(async (req, res, next) => {
       res,
       200,
       true,
-      "Property assigned successfully",
+      "Property reassigned successfully",
       data
     );
   } catch (error) {
@@ -1018,6 +1064,6 @@ module.exports = {
   deleteUser,
   getAllUsers,
   createSuperAdmin,
-  assignProperty,
+  reassignProperty,
   getAllActiveSalesManagers,
 };

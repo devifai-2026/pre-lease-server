@@ -10,6 +10,65 @@ const asyncHandler = require("../utils/asyncHandler");
 const { logRequest } = require("../utils/logs");
 const { sequelize } = require("../config/dbConnection");
 const { sendEncodedResponse } = require("../utils/responseEncoder");
+const otpService = require("../services/otpService");
+
+// ============================================
+// SEND OTP
+// ============================================
+const sendOtpHandler = asyncHandler(async (req, res, next) => {
+  const requestStartTime = Date.now();
+  const { mobileNumber } = req.body;
+
+  const requestBodyLog = {
+    mobileNumber,
+  };
+
+  try {
+    if (!mobileNumber) {
+      throw createAppError("mobileNumber is required", 400);
+    }
+
+    if (!isValidPhone(mobileNumber)) {
+      throw createAppError(
+        "Invalid mobile number. Must be 10 digits starting with 6-9",
+        400
+      );
+    }
+
+    const result = await otpService.sendOtp(mobileNumber);
+
+    await logRequest(
+      req,
+      {
+        userId: null,
+        status: 200,
+        body: { success: true, message: "OTP sent successfully" },
+        requestBodyLog: { mobileNumber: "[REDACTED]" },
+      },
+      requestStartTime
+    );
+
+    return sendEncodedResponse(res, 200, true, "OTP sent successfully", {
+      verificationId: result.verificationId,
+      timeout: result.timeout,
+    });
+  } catch (error) {
+    await logRequest(
+      req,
+      {
+        userId: null,
+        status: error.statusCode || 500,
+        body: { success: false, message: error.message },
+        requestBodyLog,
+        error: error.message,
+        stackTrace: error.stack,
+      },
+      requestStartTime
+    );
+
+    return next(error);
+  }
+});
 
 // ============================================
 // SIGNUP
@@ -25,6 +84,7 @@ const signup = asyncHandler(async (req, res, next) => {
     reraNumber,
     roleName,
     otp,
+    verificationId,
   } = req.body;
 
   // Prepare log-safe request body (redact sensitive data)
@@ -35,7 +95,8 @@ const signup = asyncHandler(async (req, res, next) => {
     lastName,
     reraNumber,
     roleName,
-    otp: otp ? "[REDACTED]" : null, // ✅ Don't log OTP
+    otp: otp ? "[REDACTED]" : null,
+    verificationId: verificationId ? "[PRESENT]" : null,
     deviceId: req.body.deviceId ? "[REDACTED]" : null,
   };
 
@@ -47,6 +108,7 @@ const signup = asyncHandler(async (req, res, next) => {
       "firstName",
       "lastName",
       "otp",
+      "verificationId",
     ];
     const missing = validateRequiredFields(requiredFields, req.body);
     if (missing.length > 0) {
@@ -69,10 +131,8 @@ const signup = asyncHandler(async (req, res, next) => {
       );
     }
 
-    // ✅ Validate OTP (static 1111 for now)
-    if (otp !== "1111") {
-      throw createAppError("Invalid OTP entered", 400);
-    }
+    // Verify OTP via MessageCentral
+    await otpService.verifyOtp(verificationId, otp);
 
     // Build where condition dynamically to avoid undefined values
     const whereConditions = [{ mobileNumber }, { email }];
@@ -134,8 +194,6 @@ const signup = asyncHandler(async (req, res, next) => {
           userType: "client",
           isActive: true,
           reraNumber: reraNumber || null,
-          otp: null, // ✅ Set to null after successful verification
-          otpExpiresAt: null, // ✅ Set to null after successful verification
         },
         { transaction: t }
       );
@@ -186,6 +244,9 @@ const signup = asyncHandler(async (req, res, next) => {
       role: result.role.roleName,
       accessToken,
       refreshToken: result.refreshToken,
+      name: `${result.user.firstName} ${result.user.lastName}`,
+      email: result.user.email,
+      mobileNumber: result.user.mobileNumber,
     };
 
     // ✅ Log successful API request
@@ -237,18 +298,20 @@ const signup = asyncHandler(async (req, res, next) => {
 const login = asyncHandler(async (req, res, next) => {
   const requestStartTime = Date.now();
 
-  const { mobileNumber, otp } = req.body;
+  const { mobileNumber, otp, roleName, verificationId } = req.body;
 
   // Prepare log-safe request body
   const requestBodyLog = {
     mobileNumber, // ✅ Keep mobile for failure tracking
-    otp: otp ? "[REDACTED]" : null, // ✅ Don't log OTP
+    otp: otp ? "[REDACTED]" : null,
+    verificationId: verificationId ? "[PRESENT]" : null,
     deviceId: req.body.deviceId ? "[REDACTED]" : null,
+    roleName,
   };
 
   try {
     // Validate required fields
-    const requiredFields = ["mobileNumber", "otp"];
+    const requiredFields = ["mobileNumber", "otp", "verificationId"];
     const missing = validateRequiredFields(requiredFields, req.body);
     if (missing.length > 0) {
       throw createAppError(
@@ -265,10 +328,8 @@ const login = asyncHandler(async (req, res, next) => {
       );
     }
 
-    // ✅ Validate OTP (static 1111 for now)
-    if (otp !== "1111") {
-      throw createAppError("Invalid OTP entered", 400);
-    }
+    // Verify OTP via MessageCentral
+    await otpService.verifyOtp(verificationId, otp);
 
     // Check if user exists
     const existingUser = await User.findOne({
@@ -277,8 +338,6 @@ const login = asyncHandler(async (req, res, next) => {
         "mobileNumber",
         "userId",
         "userType",
-        "otp",
-        "otpExpiresAt",
         "firstName",
         "lastName",
         "email",
@@ -302,18 +361,47 @@ const login = asyncHandler(async (req, res, next) => {
       throw createAppError("No active role assigned to this account", 403);
     }
 
-    const userRole = existingUser.roles[0];
+    // Determine active role for this login session
+    let activeRoleName = existingUser.roles[0].roleName;
 
-    // ✅ Clear OTP and otpExpiresAt after successful verification
-    await User.update(
-      { otp: null, otpExpiresAt: null },
-      { where: { userId: existingUser.userId } }
-    );
+    // If roleName is provided and it's a client role, add it if not already assigned
+    if (roleName && existingUser.userType === "client") {
+      const validClientRoles = ["Owner", "Broker", "Investor"];
+      if (!validClientRoles.includes(roleName)) {
+        throw createAppError(
+          "Invalid role. Please choose: Owner, Investor, or Broker",
+          400
+        );
+      }
+
+      const alreadyHasRole = existingUser.roles.some(
+        (r) => r.roleName === roleName
+      );
+
+      if (!alreadyHasRole) {
+        // Find the role record
+        const newRoleRecord = await Role.findOne({
+          where: { roleName, roleType: "client", isActive: true },
+        });
+
+        if (!newRoleRecord) {
+          throw createAppError("Role not found or inactive", 400);
+        }
+
+        await UserRole.create({
+          userId: existingUser.userId,
+          roleId: newRoleRecord.roleId,
+          assignedBy: null,
+        });
+      }
+
+      activeRoleName = roleName;
+    }
 
     // Generate new refresh token
     const refreshToken = Token.generateRefreshToken(
       existingUser.userId,
-      userRole.roleName
+      activeRoleName
     );
 
     // Update existing token or create new one
@@ -354,16 +442,24 @@ const login = asyncHandler(async (req, res, next) => {
     // Generate access token
     const accessToken = Token.generateAccessToken(
       existingUser.userId,
-      userRole.roleName
+      activeRoleName
     );
+
+    // Build roles array from existing roles + newly added role (if any)
+    const allRoles = existingUser.roles.map((r) => r.roleName);
+    if (roleName && !allRoles.includes(roleName)) {
+      allRoles.push(roleName);
+    }
 
     const data = {
       userId: existingUser.userId,
-      role: userRole.roleName,
+      role: activeRoleName,
+      roles: allRoles,
       accessToken,
       refreshToken,
       name: `${existingUser.firstName} ${existingUser.lastName}`,
       email: existingUser.email,
+      mobileNumber: existingUser.mobileNumber,
     };
 
     // ✅ Log successful API request
@@ -533,14 +629,15 @@ const refreshAccessToken = asyncHandler(async (req, res, next) => {
       throw createAppError("No active role assigned to this account", 403);
     }
 
-    const userRole = user.roles[0];
+    // Respect the role from JWT if still valid, otherwise fallback
+    const activeRoleName =
+      decoded.role && user.roles.some((r) => r.roleName === decoded.role)
+        ? decoded.role
+        : user.roles[0].roleName;
 
-    // ============================================
-    //  GENERATE NEW ACCESS TOKEN
-    // ============================================
     const newAccessToken = Token.generateAccessToken(
       user.userId,
-      userRole.roleName
+      activeRoleName
     );
 
     // Track when refresh token was last used
@@ -551,12 +648,10 @@ const refreshAccessToken = asyncHandler(async (req, res, next) => {
 
     const data = {
       userId: user.userId,
-      role: userRole.roleName,
+      role: activeRoleName,
       accessToken: newAccessToken,
       name: `${user.firstName} ${user.lastName}`,
       email: user.email,
-      // Note: Refresh token is NOT returned for security
-      // Client should keep using the existing refresh token
     };
 
     await logRequest(
@@ -571,7 +666,7 @@ const refreshAccessToken = asyncHandler(async (req, res, next) => {
         requestBodyLog: {
           ...requestBodyLog,
           userId: user.userId,
-          role: userRole.roleName,
+          role: activeRoleName,
         },
       },
       requestStartTime
@@ -602,4 +697,178 @@ const refreshAccessToken = asyncHandler(async (req, res, next) => {
   }
 });
 
-module.exports = { signup, login, logout, refreshAccessToken };
+const switchRole = asyncHandler(async (req, res, next) => {
+  const requestStartTime = Date.now();
+  const { roleName } = req.body;
+
+  const requestBodyLog = {
+    userId: req.user?.userId,
+    requestedRole: roleName,
+    currentRole: req.user?.role,
+  };
+
+  try {
+    if (!roleName) {
+      throw createAppError("roleName is required", 400);
+    }
+
+    // Only client roles can be switched
+    const validClientRoles = ["Owner", "Broker", "Investor"];
+    if (!validClientRoles.includes(roleName)) {
+      throw createAppError(
+        "Only client roles (Owner, Broker, Investor) can be switched",
+        400
+      );
+    }
+
+    const targetRole = req.user.roles.find((r) => r.roleName === roleName);
+
+    if (!targetRole) {
+      throw createAppError(
+        `You do not have the role '${roleName}'. Available roles: ${req.user.roles.filter((r) => validClientRoles.includes(r.roleName)).map((r) => r.roleName).join(", ")}`,
+        403
+      );
+    }
+
+    if (req.user.role === roleName) {
+      throw createAppError(`'${roleName}' is already your active role`, 400);
+    }
+
+    const newAccessToken = Token.generateAccessToken(
+      req.user.userId,
+      roleName
+    );
+
+    const newRefreshToken = Token.generateRefreshToken(
+      req.user.userId,
+      roleName
+    );
+
+    const [updatedCount] = await Token.update(
+      {
+        refreshToken: newRefreshToken,
+        expiresAt: Token.calculateExpiryDate(process.env.REFRESH_TOKEN_EXPIRY),
+        lastUsedAt: new Date(),
+      },
+      {
+        where: { userId: req.user.userId, isActive: true },
+      }
+    );
+
+    if (updatedCount === 0) {
+      await Token.create({
+        userId: req.user.userId,
+        refreshToken: newRefreshToken,
+        expiresAt: Token.calculateExpiryDate(process.env.REFRESH_TOKEN_EXPIRY),
+        userAgent: req.headers["user-agent"] || null,
+        ipAddress: req.ip || null,
+        isActive: true,
+      });
+    }
+
+    const data = {
+      userId: req.user.userId,
+      previousRole: req.user.role,
+      activeRole: roleName,
+      accessToken: newAccessToken,
+      refreshToken: newRefreshToken,
+    };
+
+    await logRequest(
+      req,
+      {
+        userId: req.user.userId,
+        status: 200,
+        body: { success: true, message: "Role switched successfully" },
+        requestBodyLog,
+      },
+      requestStartTime
+    );
+
+    return sendEncodedResponse(
+      res,
+      200,
+      true,
+      "Role switched successfully",
+      data
+    );
+  } catch (error) {
+    await logRequest(
+      req,
+      {
+        userId: req.user?.userId || null,
+        status: error.statusCode || 500,
+        body: { success: false, message: error.message },
+        requestBodyLog,
+        error: error.message,
+        stackTrace: error.stack,
+      },
+      requestStartTime
+    );
+
+    return next(error);
+  }
+});
+
+const verifyOtpHandler = asyncHandler(async (req, res, next) => {
+  const requestStartTime = Date.now();
+  const { otp, verificationId } = req.body;
+
+  const requestBodyLog = {
+    otp: "[REDACTED]",
+    verificationId,
+  };
+
+  try {
+    if (!otp || !verificationId) {
+      throw createAppError("otp and verificationId are required", 400);
+    }
+
+    // Verify OTP via MessageCentral
+    await otpService.verifyOtp(verificationId, otp);
+
+    await logRequest(
+      req,
+      {
+        userId: req.user?.userId || null,
+        status: 200,
+        body: { success: true, message: "OTP verified successfully" },
+        requestBodyLog,
+      },
+      requestStartTime
+    );
+
+    return sendEncodedResponse(
+      res,
+      200,
+      true,
+      "OTP verified successfully",
+      null
+    );
+  } catch (error) {
+    await logRequest(
+      req,
+      {
+        userId: req.user?.userId || null,
+        status: error.statusCode || 500,
+        body: { success: false, message: error.message },
+        requestBodyLog,
+        error: error.message,
+        stackTrace: error.stack,
+      },
+      requestStartTime
+    );
+
+    return next(error);
+  }
+});
+
+module.exports = {
+  sendOtpHandler,
+  verifyOtpHandler,
+  signup,
+  login,
+  logout,
+  refreshAccessToken,
+  switchRole,
+};

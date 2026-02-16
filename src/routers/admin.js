@@ -7,7 +7,7 @@ const {
   deleteUser,
   getAllUsers,
   createSuperAdmin,
-  assignProperty,
+  reassignProperty,
   getAllActiveSalesManagers,
 } = require("../controllers/admin");
 const {
@@ -89,8 +89,16 @@ router.post("/create-super-admin", superAdminRateLimiter, createSuperAdmin);
 router.put(
   "/properties/:propertyId/assign",
   authenticateUser,
-  checkPermission("PROPERTY_UPDATE"),
-  assignProperty
+  (req, res, next) => {
+    const isSalesPerson = req.user.roles.some((r) =>
+      ["Sales Manager", "Sales Executive"].includes(r.roleName)
+    );
+    if (isSalesPerson) {
+      return next();
+    }
+    return checkPermission("PROPERTY_UPDATE")(req, res, next);
+  },
+  reassignProperty
 );
 
 // ✅ NEW: Get Sales Managers

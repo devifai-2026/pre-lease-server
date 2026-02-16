@@ -8,6 +8,7 @@ const {
   compareProperties,
   getAllProperties,
   getAssignedProperties,
+  getPropertyById,
 } = require("../controllers/property");
 const {
   createInvestorNotes,
@@ -65,6 +66,9 @@ router.get("/caretakers", authenticateUser, getAllCaretakers);
 
 // ✅ Get all properties with some filters
 router.get("/properties", getAllProperties);
+
+// ✅ Get single property details
+router.get("/properties/:propertyId", getPropertyById);
 
 // ✅ Get properties assigned to logged-in Sales Manager/Executive
 router.get(
