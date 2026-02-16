@@ -1818,6 +1818,115 @@ const getAssignedProperties = asyncHandler(async (req, res, next) => {
     return next(error);
   }
 });
+const getPropertyById = asyncHandler(async (req, res, next) => {
+  const requestStartTime = Date.now();
+  const { propertyId } = req.params;
+
+  const requestBodyLog = {
+    propertyId,
+    endpoint: `/api/v1/properties/${propertyId}`,
+    userId: req.user?.userId || null,
+  };
+
+  try {
+    const property = await Property.findOne({
+      where: { propertyId, isActive: true },
+      include: [
+        {
+          model: Amenity,
+          as: "amenities",
+          attributes: ["amenityId", "amenityName"],
+          through: { attributes: [] },
+          where: { isActive: true },
+          required: false,
+        },
+        {
+          model: PropertyMedia,
+          as: "media",
+          attributes: ["mediaId", "mediaType", "fileUrl"],
+          required: false,
+        },
+        {
+          model: Caretaker,
+          as: "caretaker",
+          attributes: ["caretakerId", "caretakerName", "caretakerType", "contactInfo"],
+          where: { isActive: true },
+          required: false,
+        },
+        {
+          model: PropertyConnectivity,
+          as: "connectivity",
+          attributes: ["connectivityId", "connectivityType", "name", "distanceKm"],
+          required: false,
+        },
+        {
+          model: PropertyCertification,
+          as: "certifications",
+          attributes: ["certificationType", "certificationDetails"],
+          required: false,
+        },
+      ],
+    });
+
+    if (!property) {
+      throw createAppError("Property not found", 404);
+    }
+
+    const propertyData = property.toJSON();
+
+    // Attach GCS Signed URLs for media
+    if (propertyData.media && propertyData.media.length > 0) {
+      propertyData.media = await attachSignedUrls(propertyData.media);
+    }
+
+    // Calculate tenure left
+    if (propertyData.leaseEndDate) {
+      const now = new Date();
+      const leaseEnd = new Date(propertyData.leaseEndDate);
+      const diffTime = leaseEnd - now;
+      const diffYears = diffTime / (1000 * 60 * 60 * 24 * 365.25);
+      propertyData.tenureLeftYears = Math.max(
+        0,
+        parseFloat(diffYears.toFixed(2))
+      );
+    } else {
+      propertyData.tenureLeftYears = null;
+    }
+    await logRequest(
+      req,
+      {
+        userId: req.user?.userId || null,
+        status: 200,
+        body: { success: true, message: "Property fetched successfully" },
+        requestBodyLog,
+      },
+      requestStartTime
+    );
+
+    return sendEncodedResponse(
+      res,
+      200,
+      true,
+      "Property fetched successfully",
+      propertyData
+    );
+  } catch (error) {
+    await logRequest(
+      req,
+      {
+        userId: req.user?.userId || null,
+        status: error.statusCode || 500,
+        body: { success: false, message: error.message },
+        requestBodyLog,
+        error: error.message,
+        stackTrace: error.stack,
+      },
+      requestStartTime
+    );
+
+    return next(error);
+  }
+});
 
 module.exports = {
   createProperty,
@@ -1827,4 +1936,5 @@ module.exports = {
   compareProperties,
   getAllProperties,
   getAssignedProperties,
+  getPropertyById,
 };

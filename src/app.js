@@ -11,7 +11,11 @@ const NODE_ENV = process.env.NODE_ENV || "development";
 app.use(helmet());
 app.use(
   cors({
-    origin: process.env.CORS_ORIGIN || "http://localhost:3000",
+    origin: [
+      /^http:\/\/localhost(:\d+)?$/,
+      /^http:\/\/127\.0\.0\.1(:\d+)?$/,
+      process.env.CORS_ORIGIN,
+    ].filter(Boolean),
     credentials: true,
   })
 );

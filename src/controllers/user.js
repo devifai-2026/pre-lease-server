@@ -806,8 +806,62 @@ const switchRole = asyncHandler(async (req, res, next) => {
   }
 });
 
+const verifyOtpHandler = asyncHandler(async (req, res, next) => {
+  const requestStartTime = Date.now();
+  const { otp, verificationId } = req.body;
+
+  const requestBodyLog = {
+    otp: "[REDACTED]",
+    verificationId,
+  };
+
+  try {
+    if (!otp || !verificationId) {
+      throw createAppError("otp and verificationId are required", 400);
+    }
+
+    // Verify OTP via MessageCentral
+    await otpService.verifyOtp(verificationId, otp);
+
+    await logRequest(
+      req,
+      {
+        userId: req.user?.userId || null,
+        status: 200,
+        body: { success: true, message: "OTP verified successfully" },
+        requestBodyLog,
+      },
+      requestStartTime
+    );
+
+    return sendEncodedResponse(
+      res,
+      200,
+      true,
+      "OTP verified successfully",
+      null
+    );
+  } catch (error) {
+    await logRequest(
+      req,
+      {
+        userId: req.user?.userId || null,
+        status: error.statusCode || 500,
+        body: { success: false, message: error.message },
+        requestBodyLog,
+        error: error.message,
+        stackTrace: error.stack,
+      },
+      requestStartTime
+    );
+
+    return next(error);
+  }
+});
+
 module.exports = {
   sendOtpHandler,
+  verifyOtpHandler,
   signup,
   login,
   logout,

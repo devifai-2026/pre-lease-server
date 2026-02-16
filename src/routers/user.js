@@ -8,6 +8,7 @@ const {
   refreshAccessToken,
   switchRole,
   sendOtpHandler,
+  verifyOtpHandler,
 } = require("../controllers/user");
 const { authenticateUser } = require("../middlewares/auth");
 
@@ -46,6 +47,7 @@ const refreshRateLimiter = rateLimit({
  * @access  Public
  */
 userrouter.post("/send-otp", authRateLimiter, sendOtpHandler);
+userrouter.post("/verify-otp", authRateLimiter, verifyOtpHandler);
 
 /**
  * @route   POST /api/v1/auth/signup
