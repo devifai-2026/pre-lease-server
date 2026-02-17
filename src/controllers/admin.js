@@ -988,30 +988,55 @@ const reassignProperty = asyncHandler(async (req, res, next) => {
   }
 });
 
-const getAllActiveSalesManagers = asyncHandler(async (req, res, next) => {
+const getAllSalesRelatedActiveUsers = asyncHandler(async (req, res, next) => {
   const requestStartTime = Date.now();
-
+  const { roleName } = req.params; // ✅ Pass role as param: /:roleName (client-dealer, property-manager, sales-manager)
   const requestBodyLog = {
     requestedBy: req.userRole,
+    roleName,
   };
 
   try {
     // Only Admin and Super Admin can access this endpoint
     if (req.userRole !== "Admin" && req.userRole !== "Super Admin") {
       throw createAppError(
-        "Access denied. Only Admin or Super Admin can fetch sales managers",
+        "Access denied. Only Admin or Super Admin can fetch assignable users",
         403
       );
     }
 
-    const salesManagers = await User.findAll({
+    // ✅ Validate roleName
+    const validRoles = [
+      "Sales Executive - Property Manager",
+      "Sales Manager",
+      "Sales Executive - Client Dealer",
+    ];
+
+    if (!validRoles.includes(roleName)) {
+      throw createAppError(
+        `Invalid role. Must be one of: ${validRoles.join(", ")}`,
+        400
+      );
+    }
+
+    const assignableUsers = await User.findAll({
       where: { isActive: true },
-      attributes: ["userId", "firstName", "lastName", "email", "mobileNumber"],
+      attributes: [
+        "user_id",
+        "firstName",
+        "lastName",
+        "email",
+        "mobileNumber",
+        "city",
+      ],
       include: [
         {
           model: Role,
           as: "roles",
-          where: { roleName: "Sales Manager", isActive: true },
+          where: {
+            roleName: roleName, // ✅ Exact role match
+            isActive: true,
+          },
           through: { attributes: [] },
           attributes: ["roleName"],
         },
@@ -1022,11 +1047,12 @@ const getAllActiveSalesManagers = asyncHandler(async (req, res, next) => {
       ],
     });
 
-    const formattedManagers = salesManagers.map((manager) => ({
-      value: manager.userId,
-      label: `${manager.firstName} ${manager.lastName}`,
-      email: manager.email,
-      mobileNumber: manager.mobileNumber,
+    const formattedUsers = assignableUsers.map((user) => ({
+      value: user.user_id,
+      label: `${user.firstName} ${user.lastName}`,
+      email: user.email,
+      mobileNumber: user.mobileNumber,
+      city: user.city,
     }));
 
     await logRequest(
@@ -1036,8 +1062,8 @@ const getAllActiveSalesManagers = asyncHandler(async (req, res, next) => {
         status: 200,
         body: {
           success: true,
-          message: "Sales managers fetched successfully",
-          count: formattedManagers.length,
+          message: `${roleName} users fetched successfully`,
+          count: formattedUsers.length,
         },
         requestBodyLog,
       },
@@ -1048,8 +1074,8 @@ const getAllActiveSalesManagers = asyncHandler(async (req, res, next) => {
       res,
       200,
       true,
-      "Sales managers fetched successfully",
-      formattedManagers
+      `${roleName} users fetched successfully`,
+      formattedUsers
     );
   } catch (error) {
     await logRequest(
@@ -1076,5 +1102,5 @@ module.exports = {
   getAllUsers,
   createSuperAdmin,
   reassignProperty,
-  getAllActiveSalesManagers,
+  getAllSalesRelatedActiveUsers,
 };

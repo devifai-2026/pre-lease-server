@@ -8,7 +8,7 @@ const {
   getAllUsers,
   createSuperAdmin,
   reassignProperty,
-  getAllActiveSalesManagers,
+  getAllSalesRelatedActiveUsers,
 } = require("../controllers/admin");
 const {
   authenticateUser,
@@ -107,10 +107,10 @@ router.put(
 
 // ✅ NEW: Get Sales Managers
 router.get(
-  "/sales-managers",
+  "/sales-related-active-users",
   authenticateUser,
   checkAdminOrSuperAdmin,
-  getAllActiveSalesManagers
+  getAllSalesRelatedActiveUsers
 );
 
 module.exports = router;

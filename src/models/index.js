@@ -16,6 +16,7 @@ const PropertyMedia = require("./propertyMedia");
 const AuditLog = require("./auditLog");
 const SalesRelationship = require("./salesRelationship");
 const PropertyManagerNotes = require("./propertyManagerNotes");
+const PropertyInquiry = require("./propertyInquiries");
 
 // ============================================
 // USER & ROLE ASSOCIATIONS
@@ -230,6 +231,43 @@ AuditLog.belongsTo(Property, {
 });
 
 // ============================================
+// PROPERTY INQUIRIES ASSOCIATIONS (SIMPLE & WORKING)
+// ============================================
+
+// Property -> PropertyInquiry (1:M)
+Property.hasMany(PropertyInquiry, {
+  foreignKey: "propertyId",
+  as: "inquiries",
+});
+
+PropertyInquiry.belongsTo(Property, {
+  foreignKey: "propertyId",
+  as: "property",
+});
+
+// User (Inquirer) -> PropertyInquiry (1:M)
+User.hasMany(PropertyInquiry, {
+  foreignKey: "inquirerId",
+  as: "inquirerInquiries",
+});
+
+PropertyInquiry.belongsTo(User, {
+  foreignKey: "inquirerId",
+  as: "inquirer",
+});
+
+// User (Sales Exec) -> PropertyInquiry (1:M)
+User.hasMany(PropertyInquiry, {
+  foreignKey: "assignedTo",
+  as: "assignedInquiries",
+});
+
+PropertyInquiry.belongsTo(User, {
+  foreignKey: "assignedTo",
+  as: "clientDealer",
+});
+
+// ============================================
 // EXPORTS
 // ============================================
 
@@ -250,5 +288,6 @@ module.exports = {
   PropertyMedia,
   AuditLog,
   SalesRelationship,
-  PropertyManagerNotes, // ✅ NEW: Export the model
+  PropertyManagerNotes,
+  PropertyInquiry, // ✅ NEW: Export the model
 };
