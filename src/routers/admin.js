@@ -91,7 +91,11 @@ router.put(
   authenticateUser,
   (req, res, next) => {
     const isSalesPerson = req.user.roles.some((r) =>
-      ["Sales Manager", "Sales Executive"].includes(r.roleName)
+      [
+        "Sales Manager",
+        "Sales Executive - Property Manager",
+        "Sales Executive - Client Dealer",
+      ].includes(r.roleName)
     );
     if (isSalesPerson) {
       return next();
