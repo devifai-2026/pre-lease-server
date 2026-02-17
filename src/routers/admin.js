@@ -107,7 +107,7 @@ router.put(
 
 // ✅ NEW: Get Sales Managers
 router.get(
-  "/sales-related-active-users",
+  "/sales-related-active-users/:roleName",
   authenticateUser,
   checkAdminOrSuperAdmin,
   getAllSalesRelatedActiveUsers

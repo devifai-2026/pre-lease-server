@@ -1021,14 +1021,7 @@ const getAllSalesRelatedActiveUsers = asyncHandler(async (req, res, next) => {
 
     const assignableUsers = await User.findAll({
       where: { isActive: true },
-      attributes: [
-        "user_id",
-        "firstName",
-        "lastName",
-        "email",
-        "mobileNumber",
-        "city",
-      ],
+      attributes: ["user_id", "firstName", "lastName", "email", "mobileNumber"],
       include: [
         {
           model: Role,
@@ -1052,7 +1045,6 @@ const getAllSalesRelatedActiveUsers = asyncHandler(async (req, res, next) => {
       label: `${user.firstName} ${user.lastName}`,
       email: user.email,
       mobileNumber: user.mobileNumber,
-      city: user.city,
     }));
 
     await logRequest(
