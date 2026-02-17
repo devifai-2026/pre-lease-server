@@ -15,7 +15,7 @@ const PropertyConnectivity = require("./propertyConnectivity");
 const PropertyMedia = require("./propertyMedia");
 const AuditLog = require("./auditLog");
 const SalesRelationship = require("./salesRelationship");
-const PropertyInvestorNote = require("./propertyInvestorNote");
+const PropertyManagerNotes = require("./propertyManagerNotes");
 
 // ============================================
 // USER & ROLE ASSOCIATIONS
@@ -185,26 +185,26 @@ User.hasMany(SalesRelationship, {
 // PROPERTY INVESTOR NOTES ASSOCIATIONS
 // ============================================
 
-// Property <-> PropertyInvestorNote (One-to-Many)
-Property.hasMany(PropertyInvestorNote, {
+// Property <-> PropertyManagerNotes (One-to-Many)
+Property.hasMany(PropertyManagerNotes, {
   foreignKey: "propertyId",
-  as: "investorNotes",
+  as: "managerNotes", // ✅ Changed from "investorNotes"
 });
 
-PropertyInvestorNote.belongsTo(Property, {
+PropertyManagerNotes.belongsTo(Property, {
   foreignKey: "propertyId",
   as: "property",
 });
 
-// User (Investor) <-> PropertyInvestorNote (One-to-Many)
-User.hasMany(PropertyInvestorNote, {
-  foreignKey: "investorId",
+// User (Sales Executive) <-> PropertyManagerNotes (One-to-Many)
+User.hasMany(PropertyManagerNotes, {
+  foreignKey: "salesExecutiveId",
   as: "propertyNotes",
 });
 
-PropertyInvestorNote.belongsTo(User, {
-  foreignKey: "investorId",
-  as: "investor",
+PropertyManagerNotes.belongsTo(User, {
+  foreignKey: "salesExecutiveId",
+  as: "salesExecutive",
 });
 
 // ============================================
@@ -250,5 +250,5 @@ module.exports = {
   PropertyMedia,
   AuditLog,
   SalesRelationship,
-  PropertyInvestorNote, // ✅ NEW: Export the model
+  PropertyManagerNotes, // ✅ NEW: Export the model
 };

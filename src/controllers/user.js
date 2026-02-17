@@ -725,7 +725,10 @@ const switchRole = asyncHandler(async (req, res, next) => {
 
     if (!targetRole) {
       throw createAppError(
-        `You do not have the role '${roleName}'. Available roles: ${req.user.roles.filter((r) => validClientRoles.includes(r.roleName)).map((r) => r.roleName).join(", ")}`,
+        `You do not have the role '${roleName}'. Available roles: ${req.user.roles
+          .filter((r) => validClientRoles.includes(r.roleName))
+          .map((r) => r.roleName)
+          .join(", ")}`,
         403
       );
     }
@@ -734,10 +737,7 @@ const switchRole = asyncHandler(async (req, res, next) => {
       throw createAppError(`'${roleName}' is already your active role`, 400);
     }
 
-    const newAccessToken = Token.generateAccessToken(
-      req.user.userId,
-      roleName
-    );
+    const newAccessToken = Token.generateAccessToken(req.user.userId, roleName);
 
     const newRefreshToken = Token.generateRefreshToken(
       req.user.userId,
