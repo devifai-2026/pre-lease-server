@@ -1,6 +1,6 @@
 const {
   Property,
-  PropertyInvestorNote,
+  PropertyManagerNotes,
   User,
   PropertyMedia,
 } = require("../models");
@@ -16,19 +16,18 @@ const { sequelize } = require("../config/dbConnection");
 // ============================================
 
 /**
- * Create or update investor notes for a property
+ * Create or update property manager notes for a property
  * First call: Creates record with notes array
  * Subsequent calls: Pushes new notes to existing array
  */
-const createInvestorNotes = asyncHandler(async (req, res, next) => {
+const createPropertyManagerNotes = asyncHandler(async (req, res, next) => {
   const requestStartTime = Date.now();
   const { propertyId } = req.params;
   const { notes } = req.body; // Array of {note, createdAt}
-  const investorId = req.user.userId;
+  const salesExecutiveId = req.user.userId; // ✅ Fixed variable name
 
   const requestBodyLog = {
     propertyId,
-    investorId,
     notesCount: notes?.length || 0,
   };
 
@@ -81,22 +80,32 @@ const createInvestorNotes = asyncHandler(async (req, res, next) => {
       }
     }
 
-    // Verify property exists and is active
+    // ✅ FIXED: Verify property exists and sales exec has access
     const property = await Property.findOne({
-      where: { propertyId, isActive: true },
+      where: {
+        propertyId,
+        salesId: salesExecutiveId, // ✅ Check property.salesId matches logged-in user
+        isActive: true,
+      },
       attributes: ["propertyId", "salesId", "city", "state"],
     });
 
     if (!property) {
-      throw createAppError("Property not found or inactive", 404);
+      throw createAppError(
+        "Property not found or you don't have permission to add notes",
+        404
+      );
     }
 
     const transaction = await sequelize.transaction();
 
     try {
-      // Find existing note record
-      let noteRecord = await PropertyInvestorNote.findOne({
-        where: { propertyId, investorId },
+      // ✅ FIXED: Use correct column name
+      let noteRecord = await PropertyManagerNotes.findOne({
+        where: {
+          propertyId,
+          salesExecutiveId, // ✅ Correct column name
+        },
         transaction,
       });
 
@@ -110,10 +119,10 @@ const createInvestorNotes = asyncHandler(async (req, res, next) => {
           createdAt: n.createdAt || new Date().toISOString(),
         }));
 
-        noteRecord = await PropertyInvestorNote.create(
+        noteRecord = await PropertyManagerNotes.create(
           {
             propertyId,
-            investorId,
+            salesExecutiveId, // ✅ Correct column name
             notes: notesWithTimestamp,
             totalNotesCount: notesWithTimestamp.length,
             isActive: true,
@@ -130,7 +139,7 @@ const createInvestorNotes = asyncHandler(async (req, res, next) => {
           createdAt: n.createdAt || new Date().toISOString(),
         }));
 
-        PropertyInvestorNote.pushNotes(noteRecord, notesWithTimestamp);
+        PropertyManagerNotes.pushNotes(noteRecord, notesWithTimestamp);
         await noteRecord.save({ transaction });
 
         addedNotes = notesWithTimestamp;
@@ -195,47 +204,41 @@ const createInvestorNotes = asyncHandler(async (req, res, next) => {
 // ============================================
 
 /**
- * Get all properties with investor notes assigned to logged-in sales agent
+ * Get all properties with property manager notes assigned to logged-in sales agent
  * Only shows properties where sales_id matches logged-in user (Sales Manager or Sales Executive)
  */
 const getAllPropertiesWithNotes = asyncHandler(async (req, res, next) => {
   const requestStartTime = Date.now();
-  const salesId = req.user.userId; // Logged-in Sales Manager or Sales Executive
-
+  const salesExecutiveId = req.user.userId; // ✅ Fixed variable name
   const {
     page = 1,
     limit = 10,
-    investorId, // Optional: filter by specific investor
     sortBy = "updatedAt",
     sortOrder = "DESC",
   } = req.query;
 
   const requestBodyLog = {
-    salesId,
+    salesExecutiveId, // ✅ Fixed
     page,
     limit,
-    investorId: investorId || null,
     sortBy,
     sortOrder,
   };
 
   try {
-    // Build where clause for PropertyInvestorNote
+    // Build where clause for PropertyManagerNotes
     const noteWhereClause = {
+      salesExecutiveId, // ✅ Filter by logged-in sales executive
       isActive: true,
     };
-
-    if (investorId) {
-      noteWhereClause.investorId = investorId;
-    }
 
     const pageNumber = parseInt(page);
     const pageSize = parseInt(limit);
     const offset = (pageNumber - 1) * pageSize;
 
-    // Find all PropertyInvestorNotes with properties assigned to this sales agent
+    // Find all PropertyManagerNotes with properties assigned to this sales agent
     const { count, rows: noteRecords } =
-      await PropertyInvestorNote.findAndCountAll({
+      await PropertyManagerNotes.findAndCountAll({
         where: noteWhereClause,
         include: [
           {
@@ -243,7 +246,6 @@ const getAllPropertiesWithNotes = asyncHandler(async (req, res, next) => {
             as: "property",
             required: true, // INNER JOIN - only notes with valid properties
             where: {
-              salesId: salesId, // ✅ MANDATORY: Filter by logged-in sales agent
               isActive: true,
             },
             attributes: [
@@ -271,18 +273,6 @@ const getAllPropertiesWithNotes = asyncHandler(async (req, res, next) => {
               },
             ],
           },
-          {
-            model: User,
-            as: "investor",
-            attributes: [
-              "userId",
-              "firstName",
-              "lastName",
-              "email",
-              "mobileNumber",
-            ],
-            required: true,
-          },
         ],
         order: [[sortBy, sortOrder.toUpperCase()]],
         limit: pageSize,
@@ -305,7 +295,7 @@ const getAllPropertiesWithNotes = asyncHandler(async (req, res, next) => {
         }
 
         // Sort notes by latest first
-        recordData.notes = PropertyInvestorNote.getAllNotes(record);
+        recordData.notes = PropertyManagerNotes.getAllNotes(record);
 
         return recordData;
       })
@@ -322,7 +312,7 @@ const getAllPropertiesWithNotes = asyncHandler(async (req, res, next) => {
         status: 200,
         body: {
           success: true,
-          message: "Properties with investor notes fetched successfully",
+          message: "Properties with notes fetched successfully",
           count: count,
         },
         requestBodyLog,
@@ -334,7 +324,7 @@ const getAllPropertiesWithNotes = asyncHandler(async (req, res, next) => {
       res,
       200,
       true,
-      "Properties with investor notes fetched successfully",
+      "Properties with notes fetched successfully",
       notesWithSignedUrls,
       {
         pagination: {
@@ -346,8 +336,8 @@ const getAllPropertiesWithNotes = asyncHandler(async (req, res, next) => {
           hasPrevPage: hasPrevPage,
         },
         assignedTo: {
-          salesId: salesId,
-          role: req.user.role,
+          salesExecutiveId: salesExecutiveId, // ✅ Fixed
+          role: req.user.roles, // ✅ Changed from role to roles (array)
         },
       }
     );
@@ -374,25 +364,25 @@ const getAllPropertiesWithNotes = asyncHandler(async (req, res, next) => {
 // ============================================
 
 /**
- * Get a specific property with all investor notes
+ * Get a specific property with all property manager notes
  * Only accessible if property's sales_id matches logged-in sales agent
  */
 const getPropertyWithNotes = asyncHandler(async (req, res, next) => {
   const requestStartTime = Date.now();
   const { propertyId } = req.params;
-  const salesId = req.user.userId; // Logged-in Sales Manager or Sales Executive
+  const salesExecutiveId = req.user.userId;
 
   const requestBodyLog = {
     propertyId,
-    salesId,
+    salesExecutiveId,
   };
 
   try {
-    // First, verify the property is assigned to this sales agent
+    // ✅ OPTIMIZED: Single query with LEFT JOIN to property_manager_notes
     const property = await Property.findOne({
       where: {
         propertyId,
-        salesId: salesId, // ✅ MANDATORY: Must match logged-in sales agent
+        salesId: salesExecutiveId, // Only properties assigned to this sales exec
         isActive: true,
       },
       attributes: [
@@ -435,6 +425,30 @@ const getPropertyWithNotes = asyncHandler(async (req, res, next) => {
           attributes: ["userId", "firstName", "lastName", "email"],
           required: false,
         },
+        // ✅ NEW: Include PropertyManagerNotes in same query
+        {
+          model: PropertyManagerNotes,
+          as: "managerNotes", // Use the alias from your index.js associations
+          where: {
+            salesExecutiveId, // Filter notes for this sales exec
+            isActive: true,
+          },
+          required: false, // LEFT JOIN - property can exist without notes
+          include: [
+            {
+              model: User,
+              as: "salesExecutive",
+              attributes: [
+                "userId",
+                "firstName",
+                "lastName",
+                "email",
+                "mobileNumber",
+              ],
+              required: false,
+            },
+          ],
+        },
       ],
     });
 
@@ -445,42 +459,31 @@ const getPropertyWithNotes = asyncHandler(async (req, res, next) => {
       );
     }
 
-    // Get all investor notes for this property
-    const investorNotes = await PropertyInvestorNote.findAll({
-      where: {
-        propertyId,
-        isActive: true,
-      },
-      include: [
-        {
-          model: User,
-          as: "investor",
-          attributes: [
-            "userId",
-            "firstName",
-            "lastName",
-            "email",
-            "mobileNumber",
-          ],
-          required: true,
-        },
-      ],
-      order: [["updatedAt", "DESC"]],
-    });
-
     // Attach signed URLs to media
     const propertyData = property.toJSON();
     if (propertyData.media && propertyData.media.length > 0) {
       propertyData.media = await attachSignedUrls(propertyData.media);
     }
 
-    // Format investor notes
-    const formattedNotes = investorNotes.map((noteRecord) => {
-      const recordData = noteRecord.toJSON();
-      // Sort notes within each investor's record
-      recordData.notes = PropertyInvestorNote.getAllNotes(noteRecord);
-      return recordData;
-    });
+    // ✅ Extract and format notes
+    let formattedNotes = null;
+    let totalNotes = 0;
+
+    if (propertyData.managerNotes && propertyData.managerNotes.length > 0) {
+      // Since composite PK (propertyId, salesExecutiveId), there should be only 1 record
+      const noteRecord = propertyData.managerNotes[0];
+
+      // Sort notes by latest first
+      noteRecord.notes = noteRecord.notes.sort(
+        (a, b) => new Date(b.createdAt) - new Date(a.createdAt)
+      );
+
+      formattedNotes = noteRecord;
+      totalNotes = noteRecord.totalNotesCount;
+    }
+
+    // Remove managerNotes from property object to avoid duplication in response
+    delete propertyData.managerNotes;
 
     await logRequest(
       req,
@@ -489,7 +492,7 @@ const getPropertyWithNotes = asyncHandler(async (req, res, next) => {
         status: 200,
         body: {
           success: true,
-          message: "Property with investor notes fetched successfully",
+          message: "Property with notes fetched successfully",
         },
         requestBodyLog,
       },
@@ -500,15 +503,11 @@ const getPropertyWithNotes = asyncHandler(async (req, res, next) => {
       res,
       200,
       true,
-      "Property with investor notes fetched successfully",
+      "Property with notes fetched successfully",
       {
         property: propertyData,
-        investorNotes: formattedNotes,
-        totalInvestors: formattedNotes.length,
-        totalNotes: formattedNotes.reduce(
-          (sum, record) => sum + record.totalNotesCount,
-          0
-        ),
+        notes: formattedNotes,
+        totalNotes: totalNotes,
       }
     );
   } catch (error) {
@@ -530,7 +529,7 @@ const getPropertyWithNotes = asyncHandler(async (req, res, next) => {
 });
 
 module.exports = {
-  createInvestorNotes,
+  createPropertyManagerNotes, // ✅ Renamed from createInvestorNotes
   getAllPropertiesWithNotes,
   getPropertyWithNotes,
 };

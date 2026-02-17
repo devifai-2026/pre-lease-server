@@ -1849,14 +1849,24 @@ const getPropertyById = asyncHandler(async (req, res, next) => {
         {
           model: Caretaker,
           as: "caretaker",
-          attributes: ["caretakerId", "caretakerName", "caretakerType", "contactInfo"],
+          attributes: [
+            "caretakerId",
+            "caretakerName",
+            "caretakerType",
+            "contactInfo",
+          ],
           where: { isActive: true },
           required: false,
         },
         {
           model: PropertyConnectivity,
           as: "connectivity",
-          attributes: ["connectivityId", "connectivityType", "name", "distanceKm"],
+          attributes: [
+            "connectivityId",
+            "connectivityType",
+            "name",
+            "distanceKm",
+          ],
           required: false,
         },
         {

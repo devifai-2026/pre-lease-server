@@ -10,7 +10,11 @@ let tokenExpiresAt = null;
 
 const getAuthToken = async () => {
   // Return cached token if still valid (refresh 5 min before expiry)
-  if (cachedToken && tokenExpiresAt && Date.now() < tokenExpiresAt - 5 * 60 * 1000) {
+  if (
+    cachedToken &&
+    tokenExpiresAt &&
+    Date.now() < tokenExpiresAt - 5 * 60 * 1000
+  ) {
     return cachedToken;
   }
 

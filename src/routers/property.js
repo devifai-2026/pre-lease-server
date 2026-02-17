@@ -11,7 +11,7 @@ const {
   getPropertyById,
 } = require("../controllers/property");
 const {
-  createInvestorNotes,
+  createPropertyManagerNotes,
   getAllPropertiesWithNotes,
   getPropertyWithNotes,
 } = require("../controllers/notes");
@@ -86,8 +86,8 @@ router.get(
 router.post(
   "/properties/:propertyId/notes",
   authenticateUser,
-  checkRole(["Investor"]),
-  createInvestorNotes
+  checkPermission("PROPERTY_NOTES"),
+  createPropertyManagerNotes
 );
 
 // ============================================
@@ -96,17 +96,17 @@ router.post(
 
 // ✅ Get all properties with investor notes (assigned to logged-in sales agent)
 router.get(
-  "/properties/investor-notes",
+  "/notes/properties",
   authenticateUser,
-  checkRole(["Sales Manager", "Sales Executive"]),
+  checkRole(["Sales Executive - Property Manager"]),
   getAllPropertiesWithNotes
 );
 
 // ✅ Get specific property with all investor notes (assigned to logged-in sales agent)
 router.get(
-  "/properties/:propertyId/investor-notes",
+  "/notes/:propertyId",
   authenticateUser,
-  checkRole(["Sales Manager", "Sales Executive"]),
+  checkRole(["Sales Executive - Property Manager"]),
   getPropertyWithNotes
 );
 
