@@ -535,6 +535,9 @@ const getAllUsers = asyncHandler(async (req, res, next) => {
 
     if (isActive !== undefined) {
       whereClause.isActive = isActive === "true";
+    } else {
+      // not to send the inactive users 
+      whereClause.isActive = true;
     }
 
     const roleWhere = {};

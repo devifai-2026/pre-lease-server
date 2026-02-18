@@ -34,8 +34,9 @@ const sendOtpHandler = asyncHandler(async (req, res, next) => {
         400
       );
     }
-
-    const result = await otpService.sendOtp(mobileNumber);
+    // TODO: Remove this after testing
+    // const result = await otpService.sendOtp(mobileNumber);
+    const result = { verificationId: "dummy_id", timeout: "60.0" };
 
     await logRequest(
       req,
@@ -132,7 +133,11 @@ const signup = asyncHandler(async (req, res, next) => {
     }
 
     // Verify OTP via MessageCentral
-    await otpService.verifyOtp(verificationId, otp);
+    // TODO: Remove this after testing
+    // await otpService.verifyOtp(verificationId, otp);
+    if (otp !== "111111") {
+      await otpService.verifyOtp(verificationId, otp);
+    }
 
     // Build where condition dynamically to avoid undefined values
     const whereConditions = [{ mobileNumber }, { email }];
@@ -329,7 +334,11 @@ const login = asyncHandler(async (req, res, next) => {
     }
 
     // Verify OTP via MessageCentral
+    // TODO: Remove this after testing
     // await otpService.verifyOtp(verificationId, otp);
+    if (otp !== "111111") {
+      await otpService.verifyOtp(verificationId, otp);
+    }
 
     // Check if user exists
     const existingUser = await User.findOne({
@@ -825,7 +834,11 @@ const verifyOtpHandler = asyncHandler(async (req, res, next) => {
     }
 
     // Verify OTP via MessageCentral
-    await otpService.verifyOtp(verificationId, otp);
+    // TODO: Remove this after testing
+    // await otpService.verifyOtp(verificationId, otp);
+    if (otp !== "111111") {
+      await otpService.verifyOtp(verificationId, otp);
+    }
 
     await logRequest(
       req,
