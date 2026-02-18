@@ -1,16 +1,15 @@
 const { DataTypes } = require("sequelize");
 const { sequelize } = require("../config/dbConnection");
-const { v4: uuidv4 } = require("uuid");
 
-const PropertyInvestorNote = sequelize.define(
-  "PropertyInvestorNote",
+const PropertyManagerNotes = sequelize.define(
+  "PropertyManagerNotes",
   {
     propertyId: {
       type: DataTypes.UUID,
       allowNull: false,
       primaryKey: true,
     },
-    investorId: {
+    salesExecutiveId: {
       type: DataTypes.UUID,
       allowNull: false,
       primaryKey: true,
@@ -39,7 +38,7 @@ const PropertyInvestorNote = sequelize.define(
     },
   },
   {
-    tableName: "property_investor_notes",
+    tableName: "property_manager_notes",
     // timestamps: true,    // ✅ Inherited from global config
     // underscored: true,   // ✅ Inherited from global config
     // freezeTableName: true, // ✅ Inherited from global config
@@ -52,11 +51,11 @@ const PropertyInvestorNote = sequelize.define(
 
 /**
  * Add/Push new notes to existing array
- * @param {Object} noteRecord - The PropertyInvestorNote instance
+ * @param {Object} noteRecord - The PropertyManagerNotes instance
  * @param {Array} newNotesArray - Array of new notes to push [{note: "...", createdAt: "..."}, ...]
  * @returns {Array} The newly added notes
  */
-PropertyInvestorNote.pushNotes = function (noteRecord, newNotesArray) {
+PropertyManagerNotes.pushNotes = function (noteRecord, newNotesArray) {
   if (!Array.isArray(newNotesArray)) {
     throw new Error("newNotesArray must be an array");
   }
@@ -71,13 +70,13 @@ PropertyInvestorNote.pushNotes = function (noteRecord, newNotesArray) {
 
 /**
  * Get all notes sorted by latest first
- * @param {Object} noteRecord - The PropertyInvestorNote instance
+ * @param {Object} noteRecord - The PropertyManagerNotes instance
  * @returns {Array} Array of note objects
  */
-PropertyInvestorNote.getAllNotes = function (noteRecord) {
+PropertyManagerNotes.getAllNotes = function (noteRecord) {
   return noteRecord.notes.sort(
     (a, b) => new Date(b.createdAt) - new Date(a.createdAt)
   );
 };
 
-module.exports = PropertyInvestorNote;
+module.exports = PropertyManagerNotes;

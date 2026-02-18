@@ -8,7 +8,7 @@ const {
   getAllUsers,
   createSuperAdmin,
   reassignProperty,
-  getAllActiveSalesManagers,
+  getAllSalesRelatedActiveUsers,
 } = require("../controllers/admin");
 const {
   authenticateUser,
@@ -91,7 +91,11 @@ router.put(
   authenticateUser,
   (req, res, next) => {
     const isSalesPerson = req.user.roles.some((r) =>
-      ["Sales Manager", "Sales Executive"].includes(r.roleName)
+      [
+        "Sales Manager",
+        "Sales Executive - Property Manager",
+        "Sales Executive - Client Dealer",
+      ].includes(r.roleName)
     );
     if (isSalesPerson) {
       return next();
@@ -103,10 +107,10 @@ router.put(
 
 // ✅ NEW: Get Sales Managers
 router.get(
-  "/sales-managers",
+  "/sales-related-active-users/:roleName",
   authenticateUser,
   checkAdminOrSuperAdmin,
-  getAllActiveSalesManagers
+  getAllSalesRelatedActiveUsers
 );
 
 module.exports = router;
