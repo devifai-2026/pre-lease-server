@@ -8,12 +8,7 @@ const {
   assignInquiry,
 } = require("../controllers/propertyInquiries");
 
-const {
-  authenticateUser,
-  checkPermission,
-  checkSalesPerson,
-  checkRole,
-} = require("../middlewares/auth");
+const { authenticateUser, checkRole } = require("../middlewares/auth");
 
 // ✅ Create new inquiry (investor/owner/broker creates from property inquiry)
 router.post(

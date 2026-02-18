@@ -6,10 +6,12 @@ const user = require("./user");
 const property = require("./property");
 const admin = require("./admin");
 const inquiry = require("./inquiry");
+const rolePermission = require("./rolePermission");
 
 router.use(user);
 router.use(property);
 router.use("/admin", admin);
 router.use(inquiry);
+router.use(rolePermission);
 
 module.exports = router;

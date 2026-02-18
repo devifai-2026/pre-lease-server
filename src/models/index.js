@@ -41,29 +41,51 @@ UserRole.belongsTo(User, { foreignKey: "userId", as: "user" });
 UserRole.belongsTo(Role, { foreignKey: "roleId", as: "role" });
 UserRole.belongsTo(User, { foreignKey: "assignedBy", as: "assignedByUser" });
 
-// Role <-> Permission (Many-to-Many)
+// ============================================
+// ROLE <-> PERMISSION ASSOCIATIONS (FIXED)
+// ============================================
+
+// ✅ Many-to-Many: Role <-> Permission through RolePermission
 Role.belongsToMany(Permission, {
   through: RolePermission,
   foreignKey: "roleId",
   otherKey: "permissionId",
-  as: "permissions",
+  as: "permissions", // plural for the many-to-many
 });
 
 Permission.belongsToMany(Role, {
   through: RolePermission,
   foreignKey: "permissionId",
   otherKey: "roleId",
-  as: "roles",
+  as: "roles", // plural for the many-to-many
 });
 
-RolePermission.belongsTo(Role, { foreignKey: "roleId", as: "role" });
+// ✅ Direct associations on junction table (for querying RolePermission directly)
+// Use different aliases to avoid conflicts
+RolePermission.belongsTo(Role, {
+  foreignKey: "roleId",
+  as: "roleDetail", // ← Changed from "role" to avoid conflict
+});
+
 RolePermission.belongsTo(Permission, {
   foreignKey: "permissionId",
-  as: "permission",
+  as: "permissionDetail", // ← Changed from "permission" to avoid conflict
 });
+
 RolePermission.belongsTo(User, {
   foreignKey: "grantedBy",
   as: "grantedByUser",
+});
+
+// ✅ Reverse associations (optional, for direct junction queries)
+Role.hasMany(RolePermission, {
+  foreignKey: "roleId",
+  as: "rolePermissionMappings", // ← Different alias
+});
+
+Permission.hasMany(RolePermission, {
+  foreignKey: "permissionId",
+  as: "rolePermissionMappings", // ← Different alias
 });
 
 // User <-> Token (One-to-Many)
@@ -112,6 +134,7 @@ PropertyAmenity.belongsTo(Property, {
   foreignKey: "propertyId",
   as: "property",
 });
+
 PropertyAmenity.belongsTo(Amenity, { foreignKey: "amenityId", as: "amenity" });
 
 // Property <-> PropertyCertification (One-to-Many)
@@ -119,6 +142,7 @@ Property.hasMany(PropertyCertification, {
   foreignKey: "propertyId",
   as: "certifications",
 });
+
 PropertyCertification.belongsTo(Property, {
   foreignKey: "propertyId",
   as: "property",
@@ -129,6 +153,7 @@ Property.hasMany(PropertyConnectivity, {
   foreignKey: "propertyId",
   as: "connectivity",
 });
+
 PropertyConnectivity.belongsTo(Property, {
   foreignKey: "propertyId",
   as: "property",
@@ -189,7 +214,7 @@ User.hasMany(SalesRelationship, {
 // Property <-> PropertyManagerNotes (One-to-Many)
 Property.hasMany(PropertyManagerNotes, {
   foreignKey: "propertyId",
-  as: "managerNotes", // ✅ Changed from "investorNotes"
+  as: "managerNotes",
 });
 
 PropertyManagerNotes.belongsTo(Property, {
@@ -231,7 +256,7 @@ AuditLog.belongsTo(Property, {
 });
 
 // ============================================
-// PROPERTY INQUIRIES ASSOCIATIONS (SIMPLE & WORKING)
+// PROPERTY INQUIRIES ASSOCIATIONS
 // ============================================
 
 // Property -> PropertyInquiry (1:M)
@@ -289,5 +314,5 @@ module.exports = {
   AuditLog,
   SalesRelationship,
   PropertyManagerNotes,
-  PropertyInquiry, // ✅ NEW: Export the model
+  PropertyInquiry,
 };
