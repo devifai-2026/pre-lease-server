@@ -17,6 +17,7 @@ const AuditLog = require("./auditLog");
 const SalesRelationship = require("./salesRelationship");
 const PropertyManagerNotes = require("./propertyManagerNotes");
 const PropertyInquiry = require("./propertyInquiries");
+const PropertyNotificationEvent = require("./propertyNotificationEvent");
 
 // ============================================
 // USER & ROLE ASSOCIATIONS
@@ -292,6 +293,26 @@ PropertyInquiry.belongsTo(User, {
   as: "clientDealer",
 });
 
+Property.hasMany(PropertyNotificationEvent, {
+  foreignKey: "property_id",
+  as: "notificationEvents",
+});
+
+User.hasMany(PropertyNotificationEvent, {
+  foreignKey: "user_id",
+  as: "userNotifications",
+});
+
+PropertyNotificationEvent.belongsTo(Property, {
+  foreignKey: "property_id",
+  as: "property",
+});
+
+PropertyNotificationEvent.belongsTo(User, {
+  foreignKey: "user_id",
+  as: "user",
+});
+
 // ============================================
 // EXPORTS
 // ============================================
@@ -315,4 +336,5 @@ module.exports = {
   SalesRelationship,
   PropertyManagerNotes,
   PropertyInquiry,
+  PropertyNotificationEvent,
 };
