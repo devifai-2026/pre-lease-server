@@ -730,16 +730,42 @@ const switchRole = asyncHandler(async (req, res, next) => {
       );
     }
 
-    const targetRole = req.user.roles.find((r) => r.roleName === roleName);
+    // If user doesn't have the role, check if we can assign it (for client roles)
+    let targetRole = req.user.roles.find((r) => r.roleName === roleName);
 
     if (!targetRole) {
-      throw createAppError(
-        `You do not have the role '${roleName}'. Available roles: ${req.user.roles
-          .filter((r) => validClientRoles.includes(r.roleName))
-          .map((r) => r.roleName)
-          .join(", ")}`,
-        403
-      );
+      if (req.user.userType === "client") {
+        // Find the role record mapping to ensure it exists in DB
+        const roleRecord = await Role.findOne({
+          where: { roleName, roleType: "client", isActive: true },
+        });
+
+        if (!roleRecord) {
+          throw createAppError("Requested role not found or inactive", 400);
+        }
+
+        // Assign the role to the user
+        await UserRole.create({
+          userId: req.user.userId,
+          roleId: roleRecord.roleId,
+          assignedBy: null,
+        });
+
+        // Add the role to the current session roles so it can be used later if needed
+        req.user.roles.push({
+          roleId: roleRecord.roleId,
+          roleName: roleRecord.roleName,
+          roleType: roleRecord.roleType,
+        });
+        targetRole = roleRecord;
+      } else {
+        throw createAppError(
+          `You do not have the role '${roleName}'. Available roles: ${req.user.roles
+            .map((r) => r.roleName)
+            .join(", ")}`,
+          403
+        );
+      }
     }
 
     if (req.user.role === roleName) {
