@@ -14,6 +14,7 @@ const {
   authenticateUser,
   checkPermission,
   checkAdminOrSuperAdmin,
+  checkRole,
 } = require("../middlewares/auth");
 
 const superAdminRateLimiter = rateLimit({
@@ -109,7 +110,7 @@ router.put(
 router.get(
   "/sales-related-active-users/:roleName",
   authenticateUser,
-  checkAdminOrSuperAdmin,
+  checkRole(["Admin", "Super Admin", "Sales Manager"]),
   getAllSalesRelatedActiveUsers
 );
 

@@ -1000,10 +1000,11 @@ const getAllSalesRelatedActiveUsers = asyncHandler(async (req, res, next) => {
   };
 
   try {
-    // Only Admin and Super Admin can access this endpoint
-    if (req.userRole !== "Admin" && req.userRole !== "Super Admin") {
+    // Only Admin, Super Admin and Sales Manager can access this endpoint
+    const allowedRoles = ["Admin", "Super Admin", "Sales Manager"];
+    if (!allowedRoles.includes(req.userRole)) {
       throw createAppError(
-        "Access denied. Only Admin or Super Admin can fetch assignable users",
+        "Access denied. Only Admin, Super Admin or Sales Manager can fetch assignable users",
         403
       );
     }
@@ -1024,7 +1025,7 @@ const getAllSalesRelatedActiveUsers = asyncHandler(async (req, res, next) => {
 
     const assignableUsers = await User.findAll({
       where: { isActive: true },
-      attributes: ["user_id", "firstName", "lastName", "email", "mobileNumber"],
+      attributes: ["userId", "firstName", "lastName", "email", "mobileNumber"],
       include: [
         {
           model: Role,
@@ -1043,12 +1044,15 @@ const getAllSalesRelatedActiveUsers = asyncHandler(async (req, res, next) => {
       ],
     });
 
-    const formattedUsers = assignableUsers.map((user) => ({
-      value: user.user_id,
-      label: `${user.firstName} ${user.lastName}`,
-      email: user.email,
-      mobileNumber: user.mobileNumber,
-    }));
+    const formattedUsers = assignableUsers.map((userInstance) => {
+      const user = userInstance.get({ plain: true });
+      return {
+        value: user.userId || user.user_id,
+        label: `${user.firstName || ""} ${user.lastName || ""}`.trim(),
+        email: user.email,
+        mobileNumber: user.mobileNumber,
+      };
+    });
 
     await logRequest(
       req,

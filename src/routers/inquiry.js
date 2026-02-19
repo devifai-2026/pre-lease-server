@@ -21,7 +21,7 @@ router.post(
 router.get(
   "/admin/pending-inquiries",
   authenticateUser,
-  checkRole(["Admin", "Super Admin"]),
+  checkRole(["Admin", "Super Admin", "Sales Manager"]),
   getPendingInquiries
 );
 
@@ -37,7 +37,7 @@ router.get(
 router.post(
   "/admin/inquiries/assign",
   authenticateUser,
-  checkRole(["Admin", "Super Admin"]),
+  checkRole(["Admin", "Super Admin", "Sales Manager"]),
   assignInquiry
 );
 

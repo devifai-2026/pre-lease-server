@@ -200,6 +200,12 @@ const assignInquiry = asyncHandler(async (req, res, next) => {
       throw createAppError("assignedTo is required", 400);
     }
 
+    const uuidRegex =
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+    if (!uuidRegex.test(assignedTo)) {
+      throw createAppError("assignedTo must be a valid user ID (UUID)", 400);
+    }
+
     await inquiry.update(
       {
         assignedTo,
@@ -277,7 +283,7 @@ const getPendingInquiries = asyncHandler(async (req, res) => {
       {
         model: User,
         as: "inquirer",
-        attributes: ["user_id", "firstName", "lastName", "email"],
+        attributes: ["userId", "firstName", "lastName", "email"],
         required: true,
       },
     ],
