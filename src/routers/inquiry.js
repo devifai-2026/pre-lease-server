@@ -6,6 +6,7 @@ const {
   getAssignedInquiries,
   getPendingInquiries,
   assignInquiry,
+  autoAssignInquiry,
 } = require("../controllers/propertyInquiries");
 
 const { authenticateUser, checkRole } = require("../middlewares/auth");
@@ -33,12 +34,20 @@ router.get(
   getAssignedInquiries
 );
 
-// ✅  assigning inquiries (Admin,Super admin)
+// ✅  assigning inquiries (Sales Manager, Admin, Super Admin)
 router.post(
   "/admin/inquiries/assign",
   authenticateUser,
-  checkRole(["Admin", "Super Admin"]),
+  checkRole(["Admin", "Super Admin", "Sales Manager"]),
   assignInquiry
+);
+
+// ✅  auto-assigning inquiries (Sales Manager, Admin, Super Admin)
+router.post(
+  "/admin/inquiries/auto-assign",
+  authenticateUser,
+  checkRole(["Admin", "Super Admin", "Sales Manager"]),
+  autoAssignInquiry
 );
 
 module.exports = router;

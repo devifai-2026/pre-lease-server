@@ -295,7 +295,12 @@ const checkBroker = checkRole(["Broker"]);
 const checkOwnerOrBroker = checkRole(["Owner", "Broker"]);
 const checkInvestor = checkRole(["Investor"]);
 const checkAdminOrSuperAdmin = checkRole(["Admin", "Super Admin"]);
-const checkSalesPerson = checkRole(["Sales Manager", "Sales Executive"]);
+const checkSalesPerson = checkRole([
+  "Sales Manager",
+  "Sales Executive",
+  "Sales Executive - Property Manager",
+  "Sales Executive - Client Dealer",
+]);
 
 module.exports = {
   authenticateUser,

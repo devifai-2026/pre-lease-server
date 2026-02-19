@@ -5,6 +5,7 @@ const {
   UserRole,
   Property,
   SalesRelationship,
+  PropertyNotificationEvent,
 } = require("../models");
 const {
   validateRequiredFields,
@@ -173,8 +174,15 @@ const createUser = asyncHandler(async (req, res, next) => {
       // Create SalesRelationship if creating any Sales Executive sub-role
       let salesRelationship = null;
       if (SALES_EXECUTIVE_ROLES.includes(roleName)) {
+        // If creator is Sales Manager, assign to themselves
+        // If creator is Admin/Super Admin, assign to the provided salesManagerId
         const managerUserId =
           req.userRole === "Sales Manager" ? req.user.userId : salesManagerId;
+
+        // Double check validation for safety (though validated above)
+        if (!managerUserId) {
+          throw createAppError("Sales Executive must be assigned to a Sales Manager", 400);
+        }
 
         salesRelationship = await SalesRelationship.create(
           {
@@ -549,6 +557,11 @@ const getAllUsers = asyncHandler(async (req, res, next) => {
     const pageSize = parseInt(limit);
     const offset = (pageNumber - 1) * pageSize;
 
+    // If user is NOT Admin or Super Admin, hide Admin/Super Admin users
+    if (req.userRole !== "Admin" && req.userRole !== "Super Admin") {
+      roleWhere.roleName = { [Op.notIn]: ["Admin", "Super Admin"] };
+    }
+
     const { count, rows: users } = await User.findAndCountAll({
       where: whereClause,
       attributes: [
@@ -603,7 +616,11 @@ const getAllUsers = asyncHandler(async (req, res, next) => {
       {
         userId: req.user.userId,
         status: 200,
-        body: { success: true, message: "Users fetched successfully", count },
+        body: {
+          success: true,
+          message: "Users fetched successfully",
+          count: formattedUsers.length,
+        },
         requestBodyLog,
       },
       requestStartTime
@@ -1000,10 +1017,11 @@ const getAllSalesRelatedActiveUsers = asyncHandler(async (req, res, next) => {
   };
 
   try {
-    // Only Admin and Super Admin can access this endpoint
-    if (req.userRole !== "Admin" && req.userRole !== "Super Admin") {
+    // Admin, Super Admin, and Sales Manager can access this endpoint
+    const allowedRoles = ["Admin", "Super Admin", "Sales Manager"];
+    if (!allowedRoles.includes(req.userRole)) {
       throw createAppError(
-        "Access denied. Only Admin or Super Admin can fetch assignable users",
+        "Access denied. Only Admin, Super Admin, or Sales Manager can fetch assignable users",
         403
       );
     }
@@ -1090,6 +1108,208 @@ const getAllSalesRelatedActiveUsers = asyncHandler(async (req, res, next) => {
   }
 });
 
+const verifyProperty = asyncHandler(async (req, res, next) => {
+  const requestStartTime = Date.now();
+  const { propertyId } = req.params;
+
+  const requestBodyLog = {
+    propertyId,
+    verifiedBy: req.user.userId,
+    userRole: req.userRole,
+  };
+
+  try {
+    const property = await Property.findOne({
+      where: { propertyId, isActive: true },
+      include: [
+        { model: User, as: "owner", attributes: ["firstName", "lastName"] },
+        { model: User, as: "salesAgent", attributes: ["firstName", "lastName"] },
+      ],
+    });
+
+    if (!property) {
+      throw createAppError("Property not found", 404);
+    }
+
+    const isAssignedSales =
+      property.salesId === req.user.userId &&
+      req.userRole === "Sales Executive - Property Manager";
+    const isAdmin = ["Admin", "Super Admin"].includes(req.userRole);
+
+    if (!isAssignedSales && !isAdmin) {
+      throw createAppError(
+        "You do not have permission to verify this property",
+        403
+      );
+    }
+
+    await sequelize.transaction(async (t) => {
+      await property.update({ isVerified: "partial" }, { transaction: t });
+      await logUpdate({
+        userId: req.user.userId,
+        entityType: "Property",
+        recordId: propertyId,
+        oldValues: { isVerified: property.isVerified },
+        newValues: { isVerified: "partial" },
+        tableName: "properties",
+        ipAddress: req.ip,
+        userAgent: req.headers["user-agent"],
+        transaction: t,
+      });
+    });
+
+    try {
+      const io = getIO();
+      const ownerName = property.owner
+        ? `${property.owner.firstName} ${property.owner.lastName}`
+        : "Unknown Owner";
+      const salesExecName = property.salesAgent
+        ? `${property.salesAgent.firstName} ${property.salesAgent.lastName}`
+        : "Sales Executive";
+      const message = `${salesExecName} has verified ${ownerName}'s property in ${property.city}`;
+
+      const admins = await User.findAll({
+        include: [
+          {
+            model: Role,
+            as: "roles",
+            where: { roleName: { [Op.in]: ["Admin", "Super Admin"] } },
+            through: { attributes: [] },
+          },
+        ],
+        attributes: ["userId"],
+        raw: true,
+      });
+      const adminIds = admins.map((a) => a.userId);
+
+      let salesManagerId = null;
+      if (property.salesId) {
+        const relationship = await SalesRelationship.findOne({
+          where: { salesExecutiveId: property.salesId, isActive: true },
+        });
+        if (relationship) salesManagerId = relationship.salesManagerId;
+      }
+
+      const recipients = new Set([...adminIds, salesManagerId]);
+      recipients.delete(null);
+      recipients.delete(undefined);
+
+      const notificationRecords = [];
+      const timestamp = new Date().toISOString();
+
+      for (const recipientId of recipients) {
+        notificationRecords.push({
+          propertyId: property.propertyId,
+          userId: recipientId,
+          notificationText: message,
+        });
+
+        io.to(`user:${recipientId}`).emit("property:verified", {
+          propertyId: property.propertyId,
+          message,
+          timestamp,
+        });
+      }
+
+      if (notificationRecords.length > 0) {
+        await PropertyNotificationEvent.bulkCreate(notificationRecords);
+      }
+    } catch (err) {
+      console.error("Notification failed in verifyProperty:", err.message);
+    }
+
+    await logRequest(
+      req,
+      {
+        userId: req.user.userId,
+        status: 200,
+        body: { success: true, message: "Property verified successfully" },
+        requestBodyLog,
+      },
+      requestStartTime
+    );
+
+    return sendEncodedResponse(
+      res,
+      200,
+      true,
+      "Property verified successfully",
+      { propertyId: property.propertyId, isVerified: "partial" }
+    );
+  } catch (error) {
+    await logRequest(
+      req,
+      {
+        userId: req.user?.userId || null,
+        status: error.statusCode || 500,
+        body: { success: false, message: error.message },
+        requestBodyLog,
+        error: error.message,
+        stackTrace: error.stack,
+      },
+      requestStartTime
+    );
+    return next(error);
+  }
+});
+
+
+
+const getAllSalesManagers = asyncHandler(async (req, res, next) => {
+  const requestStartTime = Date.now();
+
+  try {
+    const salesManagers = await User.findAll({
+      where: { isActive: true },
+      attributes: ["userId", "firstName", "lastName", "email"],
+      include: [
+        {
+          model: Role,
+          as: "roles",
+          where: { roleName: "Sales Manager", isActive: true },
+          through: { attributes: [] },
+          attributes: [],
+        },
+      ],
+      order: [["firstName", "ASC"]],
+    });
+
+    await logRequest(
+      req,
+      {
+        userId: req.user.userId,
+        status: 200,
+        body: {
+          success: true,
+          message: "Sales Managers fetched successfully",
+          count: salesManagers.length,
+        },
+      },
+      requestStartTime
+    );
+
+    return sendEncodedResponse(
+      res,
+      200,
+      true,
+      "Sales Managers fetched successfully",
+      salesManagers
+    );
+  } catch (error) {
+    await logRequest(
+      req,
+      {
+        userId: req.user.userId,
+        status: 500,
+        body: { success: false, message: error.message },
+        error: error.message,
+      },
+      requestStartTime
+    );
+    return next(error);
+  }
+});
+
 module.exports = {
   createUser,
   updateUser,
@@ -1098,4 +1318,6 @@ module.exports = {
   createSuperAdmin,
   reassignProperty,
   getAllSalesRelatedActiveUsers,
+  verifyProperty,
+  getAllSalesManagers,
 };

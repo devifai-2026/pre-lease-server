@@ -9,11 +9,14 @@ const {
   createSuperAdmin,
   reassignProperty,
   getAllSalesRelatedActiveUsers,
+  verifyProperty,
+  getAllSalesManagers,
 } = require("../controllers/admin");
 const {
   authenticateUser,
   checkPermission,
   checkAdminOrSuperAdmin,
+  checkRole,
 } = require("../middlewares/auth");
 
 const superAdminRateLimiter = rateLimit({
@@ -31,27 +34,22 @@ const superAdminRateLimiter = rateLimit({
 // ADMIN USER MANAGEMENT ROUTES
 // ============================================
 
-/**
- * @route   POST /api/v1/admin/users
- * @desc    Create new admin user (Super Admin only)
- * @access  Private (USER_CREATE permission)
- */
+// Create User - Admin, Super Admin, Sales Manager
+// (Logic inside controller handles specific role restrictions)
 router.post(
   "/users",
   authenticateUser,
-  checkPermission("USER_CREATE"),
+  checkRole(["Admin", "Super Admin", "Sales Manager"]),
   createUser
 );
 
 /**
  * @route   GET /api/v1/admin/users
- * @desc    Get all admin users
- * @access  Private (USER_VIEW permission)
+ * @desc    Get all users (Accessible by all authenticated users)
  */
 router.get(
   "/users",
   authenticateUser,
-  checkPermission("USER_VIEW"),
   getAllUsers
 );
 
@@ -63,19 +61,18 @@ router.get(
 router.put(
   "/users/:userId",
   authenticateUser,
-  checkPermission("USER_UPDATE"),
+  checkRole(["Admin", "Super Admin", "Sales Manager"]),
   updateUser
 );
 
 /**
  * @route   DELETE /api/v1/admin/users/:userId
- * @desc    Soft delete user
- * @access  Private (USER_DELETE permission)
+ * @desc    Soft delete user (Admin/Super Admin)
  */
 router.delete(
   "/users/:userId",
   authenticateUser,
-  checkPermission("USER_DELETE"),
+  checkRole(["Admin", "Super Admin"]),
   deleteUser
 );
 
@@ -109,8 +106,32 @@ router.put(
 router.get(
   "/sales-related-active-users/:roleName",
   authenticateUser,
-  checkAdminOrSuperAdmin,
+  checkRole(["Admin", "Super Admin", "Sales Manager"]),
   getAllSalesRelatedActiveUsers
+);
+
+// ✅ NEW: Verify Property
+// Allowed for: Assigned Sales Executive - Property Manager, Admin, Super Admin
+// The controller handles specific assignment checks. Middleware allows broad roles.
+router.post(
+  "/properties/:propertyId/verify",
+  authenticateUser,
+  (req, res, next) => {
+    const allowedRoles = ["Admin", "Super Admin", "Sales Executive - Property Manager"];
+    const hasRole = req.user.roles.some((r) => allowedRoles.includes(r.roleName));
+    if (hasRole) return next();
+    return checkPermission("PROPERTY_UPDATE")(req, res, next); // Fallback
+  },
+  verifyProperty
+);
+
+// ✅ NEW: Get All Sales Managers
+// Allowed for: Admin, Super Admin
+router.get(
+  "/users/sales-managers",
+  authenticateUser,
+  checkRole(["Admin", "Super Admin"]),
+  getAllSalesManagers
 );
 
 module.exports = router;

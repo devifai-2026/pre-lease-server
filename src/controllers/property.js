@@ -9,6 +9,7 @@ const {
   PropertyCertification,
   PropertyConnectivity,
   SalesRelationship,
+  PropertyNotificationEvent,
 } = require("../models");
 const { sequelize } = require("../config/dbConnection");
 const createAppError = require("../utils/appError");
@@ -275,7 +276,7 @@ const createProperty = asyncHandler(async (req, res, next) => {
           model: Role,
           as: "roles",
           through: { attributes: [] },
-          where: { roleName: "Sales", isActive: true },
+          where: { roleName: "Sales Executive - Property Manager", isActive: true },
           attributes: [],
         },
       ],
@@ -362,8 +363,8 @@ const createProperty = asyncHandler(async (req, res, next) => {
         otherCostsAnnual: otherCostsAnnual || null,
         totalOperatingAnnualCosts:
           parseFloat(propertyTaxAnnual || 0) +
-            parseFloat(insuranceAnnual || 0) +
-            parseFloat(otherCostsAnnual || 0) || null,
+          parseFloat(insuranceAnnual || 0) +
+          parseFloat(otherCostsAnnual || 0) || null,
         additionalIncomeAnnual: additionalIncomeAnnual || null,
         annualGrossRent: annualGrossRent || null,
         grossRentalYield: grossRentalYield || null,
@@ -538,17 +539,84 @@ const createProperty = asyncHandler(async (req, res, next) => {
 
     try {
       const io = getIO();
-      io.emit("property:created", {
-        propertyId: result.property.propertyId,
-        city: result.property.city,
-        state: result.property.state,
-        propertyType: result.property.propertyType,
-        createdBy: req.user.userId,
-        createdByRole: result.createdByRole,
-        timestamp: new Date().toISOString(),
+      const propId = result.property.propertyId;
+      const createdByUserId = req.user.userId;
+
+      // 1. Identify Recipients
+      // a. Assigned Sales Executive - Property Manager
+      const assignedSalesUser = assignedSalesId
+        ? await User.findByPk(assignedSalesId)
+        : null;
+
+      // b. Admins & Super Admins
+      const admins = await User.findAll({
+        include: [
+          {
+            model: Role,
+            as: "roles",
+            where: { roleName: { [Op.in]: ["Admin", "Super Admin"] } },
+            through: { attributes: [] },
+          },
+        ],
+        attributes: ["userId"],
+        raw: true,
       });
+      const adminIds = admins.map((a) => a.userId);
+
+      // c. Sales Manager of the assigned Sales Executive
+      let salesManagerId = null;
+      if (assignedSalesId) {
+        const relationship = await SalesRelationship.findOne({
+          where: { salesExecutiveId: assignedSalesId, isActive: true },
+        });
+        if (relationship) salesManagerId = relationship.salesManagerId;
+      }
+
+      // Collect all unique notification recipients
+      const recipients = new Set([
+        ...adminIds,
+        assignedSalesId,
+        salesManagerId,
+      ]);
+      recipients.delete(null);
+      recipients.delete(undefined);
+      // Don't notify the creator if they are one of the recipients (optional, depending on req)
+      // recipients.delete(createdByUserId); 
+
+      // 2. Prepare Notification Text
+      // "${Owner's name} have added a property"
+      const ownerName = `${req.user.firstName} ${req.user.lastName}`;
+      const notificationMessage = `${ownerName} has added a new property in ${result.property.city}`;
+
+      // 3. Insert Notifications and Send Socket Events
+      const notificationRecords = [];
+      const timestamp = new Date().toISOString();
+
+      for (const recipientId of recipients) {
+        // DB Notification
+        notificationRecords.push({
+          propertyId: propId,
+          userId: recipientId,
+          notificationText: notificationMessage,
+        });
+
+        // Socket Event
+        io.to(`user:${recipientId}`).emit("property:created", {
+          propertyId: propId,
+          message: notificationMessage,
+          city: result.property.city,
+          propertyType: result.property.propertyType,
+          createdBy: createdByUserId,
+          timestamp,
+        });
+      }
+
+      if (notificationRecords.length > 0) {
+        await PropertyNotificationEvent.bulkCreate(notificationRecords);
+      }
+
     } catch (socketErr) {
-      console.error("Socket notification failed:", socketErr.message);
+      console.error("Notification/Socket failed:", socketErr.message);
     }
 
     return sendEncodedResponse(

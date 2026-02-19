@@ -1,9 +1,17 @@
-const { Property, PropertyInquiry, User } = require("../models");
+const {
+  Property,
+  PropertyInquiry,
+  User,
+  Role,
+  PropertyNotificationEvent,
+} = require("../models");
 const createAppError = require("../utils/appError");
 const asyncHandler = require("../utils/asyncHandler");
 const { sendEncodedResponse } = require("../utils/responseEncoder");
 const { logRequest } = require("../utils/logs");
 const { sequelize } = require("../config/dbConnection");
+const { getIO } = require("../config/socket");
+const { Op } = require("sequelize");
 
 // ============================================
 // 1) CREATE/UPDATE INQUIRIES - Push inquiries to array
@@ -200,6 +208,27 @@ const assignInquiry = asyncHandler(async (req, res, next) => {
       throw createAppError("assignedTo is required", 400);
     }
 
+    // specific check: Verify assignedTo is a Client Dealer?
+    // User said "Sales Executive - Client Dealer"
+    // Ideally we check the role here, but for speed relying on frontend/admin sanity is common.
+    // Let's add a check for robustness.
+    const assignee = await User.findOne({
+      where: { userId: assignedTo, isActive: true },
+      include: [
+        {
+          model: Role,
+          as: "roles",
+          where: { roleName: "Sales Executive - Client Dealer" },
+        },
+      ],
+    });
+    if (!assignee) {
+      throw createAppError(
+        "Assigned user must be a Sales Executive - Client Dealer",
+        400
+      );
+    }
+
     await inquiry.update(
       {
         assignedTo,
@@ -209,6 +238,30 @@ const assignInquiry = asyncHandler(async (req, res, next) => {
       },
       { transaction }
     );
+
+    // Notifications
+    try {
+      const io = getIO();
+      const message = `You have been assigned to a new inquiry for property in ${inquiry.property?.city || "unknown city"}`;
+
+      await PropertyNotificationEvent.create(
+        {
+          propertyId: inquiry.propertyId,
+          userId: assignedTo,
+          notificationText: message,
+        },
+        { transaction }
+      );
+
+      io.to(`user:${assignedTo}`).emit("inquiry:assigned", {
+        inquiryId: inquiry.id,
+        propertyId: inquiry.propertyId,
+        message,
+        timestamp: new Date().toISOString(),
+      });
+    } catch (err) {
+      console.error("Notification failed in assignInquiry:", err.message);
+    }
 
     await transaction.commit();
 
@@ -231,6 +284,167 @@ const assignInquiry = asyncHandler(async (req, res, next) => {
       {
         inquiryId: inquiry.id,
         assignedTo,
+      }
+    );
+  } catch (error) {
+    await transaction.rollback();
+    await logRequest(
+      req,
+      {
+        userId: req.user?.userId || null,
+        status: error.statusCode || 500,
+        body: { success: false, message: error.message },
+        error: error.message,
+      },
+      requestStartTime,
+      requestBodyLog
+    );
+    return next(error);
+  }
+});
+
+const autoAssignInquiry = asyncHandler(async (req, res, next) => {
+  const requestStartTime = Date.now();
+  const { propertyId, inquirerId } = req.body;
+  const adminId = req.user.userId;
+
+  const requestBodyLog = {
+    propertyId,
+    inquirerId,
+    operation: "auto-assign",
+    triggeredBy: adminId,
+  };
+
+  if (!propertyId || !inquirerId) {
+    throw createAppError("propertyId and inquirerId are required", 400);
+  }
+
+  const transaction = await sequelize.transaction();
+  try {
+    const inquiry = await PropertyInquiry.findOne({
+      where: { propertyId, inquirerId },
+      include: [{ model: Property, as: "property" }],
+      transaction,
+    });
+
+    if (!inquiry) {
+      throw createAppError("Inquiry not found", 404);
+    }
+
+    // Find all Client Dealers
+    const clientDealers = await User.findAll({
+      where: { isActive: true },
+      attributes: ["userId"],
+      include: [
+        {
+          model: Role,
+          as: "roles",
+          through: { attributes: [] },
+          where: {
+            roleName: "Sales Executive - Client Dealer",
+            isActive: true,
+          },
+          attributes: [],
+        },
+      ],
+      transaction,
+    });
+
+    if (clientDealers.length === 0) {
+      throw createAppError("No Active Client Dealers found to assign", 404);
+    }
+
+    const dealerIds = clientDealers.map((u) => u.userId);
+
+    // Count active assignments per dealer
+    // We count inquiries that are NOT 'closed' or 'converted' maybe?
+    // Or just all assignments? Let's stick to simple count for now or all active.
+    const assignmentCounts = await PropertyInquiry.findAll({
+      where: {
+        assignedTo: { [Op.in]: dealerIds },
+        status: { [Op.ne]: "closed" }, // Optional: only count active work
+      },
+      attributes: [
+        "assignedTo",
+        [sequelize.fn("COUNT", sequelize.col("id")), "count"],
+      ],
+      group: ["assignedTo"],
+      raw: true,
+      transaction,
+    });
+
+    const countMap = {};
+    assignmentCounts.forEach((row) => {
+      countMap[row.assignedTo] = parseInt(row.count);
+    });
+
+    // Find min
+    const bestDealerId = dealerIds.reduce((minId, id) => {
+      const count = countMap[id] || 0;
+      const minCount = countMap[minId] || 0;
+      return count < minCount ? id : minId;
+    }, dealerIds[0]);
+
+    // Assign
+    await inquiry.update(
+      {
+        assignedTo: bestDealerId,
+        assignedBy: adminId,
+        assignedAt: new Date(),
+        status: "assigned",
+      },
+      { transaction }
+    );
+
+    // Notifications
+    try {
+      const io = getIO();
+      const message = `You have been auto-assigned to a new inquiry for property in ${inquiry.property?.city || "unknown city"}`;
+
+      await PropertyNotificationEvent.create(
+        {
+          propertyId: inquiry.propertyId,
+          userId: bestDealerId,
+          notificationText: message,
+        },
+        { transaction }
+      );
+
+      io.to(`user:${bestDealerId}`).emit("inquiry:assigned", {
+        inquiryId: inquiry.id,
+        propertyId: inquiry.propertyId,
+        message,
+        timestamp: new Date().toISOString(),
+      });
+    } catch (err) {
+      console.error("Notification failed in autoAssignInquiry:", err.message);
+    }
+
+    await transaction.commit();
+
+    await logRequest(
+      req,
+      {
+        userId: adminId,
+        status: 200,
+        body: {
+          success: true,
+          message: "Inquiry auto-assigned successfully",
+          assignedTo: bestDealerId,
+        },
+      },
+      requestStartTime,
+      requestBodyLog
+    );
+
+    return sendEncodedResponse(
+      res,
+      200,
+      true,
+      "Inquiry auto-assigned successfully",
+      {
+        inquiryId: inquiry.id,
+        assignedTo: bestDealerId,
       }
     );
   } catch (error) {
@@ -343,6 +557,7 @@ const getAssignedInquiries = asyncHandler(async (req, res) => {
 module.exports = {
   createPropertyInquiry,
   assignInquiry,
+  autoAssignInquiry,
   getPendingInquiries,
   getAssignedInquiries,
 };
