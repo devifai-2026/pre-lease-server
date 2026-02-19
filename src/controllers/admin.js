@@ -1150,14 +1150,16 @@ const verifyProperty = asyncHandler(async (req, res, next) => {
       );
     }
 
+    const nextStatus = property.isVerified === "partial" ? "completed" : "partial";
+
     await sequelize.transaction(async (t) => {
-      await property.update({ isVerified: "partial" }, { transaction: t });
+      await property.update({ isVerified: nextStatus }, { transaction: t });
       await logUpdate({
         userId: req.user.userId,
         entityType: "Property",
         recordId: propertyId,
         oldValues: { isVerified: property.isVerified },
-        newValues: { isVerified: "partial" },
+        newValues: { isVerified: nextStatus },
         tableName: "properties",
         ipAddress: req.ip,
         userAgent: req.headers["user-agent"],
@@ -1240,8 +1242,8 @@ const verifyProperty = asyncHandler(async (req, res, next) => {
       res,
       200,
       true,
-      "Property verified successfully",
-      { propertyId: property.propertyId, isVerified: "partial" }
+      `Property status updated to ${nextStatus}`,
+      { propertyId: property.propertyId, isVerified: nextStatus }
     );
   } catch (error) {
     await logRequest(
