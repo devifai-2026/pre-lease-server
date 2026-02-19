@@ -87,14 +87,17 @@ router.put(
   "/properties/:propertyId/assign",
   authenticateUser,
   (req, res, next) => {
-    const isSalesPerson = req.user.roles.some((r) =>
-      [
-        "Sales Manager",
-        "Sales Executive - Property Manager",
-        "Sales Executive - Client Dealer",
-      ].includes(r.roleName)
+    const allowedRoles = [
+      "Admin",
+      "Super Admin",
+      "Sales Manager",
+      "Sales Executive - Property Manager",
+    ];
+    const matchedRole = req.user.roles.find((r) =>
+      allowedRoles.includes(r.roleName)
     );
-    if (isSalesPerson) {
+    if (matchedRole) {
+      req.userRole = matchedRole.roleName;
       return next();
     }
     return checkPermission("PROPERTY_UPDATE")(req, res, next);
@@ -117,10 +120,19 @@ router.post(
   "/properties/:propertyId/verify",
   authenticateUser,
   (req, res, next) => {
-    const allowedRoles = ["Admin", "Super Admin", "Sales Executive - Property Manager"];
-    const hasRole = req.user.roles.some((r) => allowedRoles.includes(r.roleName));
-    if (hasRole) return next();
-    return checkPermission("PROPERTY_UPDATE")(req, res, next); // Fallback
+    const allowedRoles = [
+      "Admin",
+      "Super Admin",
+      "Sales Executive - Property Manager",
+    ];
+    const matchedRole = req.user.roles.find((r) =>
+      allowedRoles.includes(r.roleName)
+    );
+    if (matchedRole) {
+      req.userRole = matchedRole.roleName;
+      return next();
+    }
+    return checkPermission("PROPERTY_UPDATE")(req, res, next); // Fallback sets req.userRole
   },
   verifyProperty
 );

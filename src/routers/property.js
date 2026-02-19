@@ -67,9 +67,6 @@ router.get("/caretakers", authenticateUser, getAllCaretakers);
 // ✅ Get all properties with some filters
 router.get("/properties", getAllProperties);
 
-// ✅ Get single property details
-router.get("/properties/:propertyId", getPropertyById);
-
 // ✅ Get properties assigned to logged-in Sales Manager/Executive
 router.get(
   "/properties/assigned",
@@ -77,6 +74,9 @@ router.get(
   checkSalesPerson, // Only sales roles
   getAssignedProperties
 );
+
+// ✅ Get single property details
+router.get("/properties/:propertyId", getPropertyById);
 
 // ============================================
 // INVESTOR NOTES (Investor Role)

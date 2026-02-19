@@ -842,7 +842,7 @@ const reassignProperty = asyncHandler(async (req, res, next) => {
     propertyId,
     targetUserId: userId,
     reassignedBy: req.user.userId,
-    reassignerRole: req.user.role,
+    reassignerRole: req.userRole || req.user.role,
   };
 
   try {
@@ -859,11 +859,14 @@ const reassignProperty = asyncHandler(async (req, res, next) => {
     }
 
     // Check if user has Sales Manager or any Sales Executive sub-role
-    const isSalesPerson = ["Sales Manager", ...SALES_EXECUTIVE_ROLES].includes(
-      req.user.role
-    );
+    const isSalesPerson = [
+      "Sales Manager",
+      "Sales Executive - Property Manager",
+    ].includes(req.userRole || req.user.role);
 
-    const isAdmin = ["Admin", "Super Admin"].includes(req.user.role);
+    const isAdmin = ["Admin", "Super Admin"].includes(
+      req.userRole || req.user.role
+    );
 
     if (isSalesPerson) {
       if (property.salesId !== req.user.userId) {
@@ -895,7 +898,10 @@ const reassignProperty = asyncHandler(async (req, res, next) => {
           attributes: ["roleName"],
           where: {
             roleName: {
-              [Op.in]: ["Sales Manager", "Sales Executive - Property Manager"],
+              [Op.in]: [
+                "Sales Manager",
+                "Sales Executive - Property Manager",
+              ],
             },
             isActive: true,
           },
@@ -1135,8 +1141,9 @@ const verifyProperty = asyncHandler(async (req, res, next) => {
       property.salesId === req.user.userId &&
       req.userRole === "Sales Executive - Property Manager";
     const isAdmin = ["Admin", "Super Admin"].includes(req.userRole);
+    const hasUpdatePermission = req.userPermission === "PROPERTY_UPDATE";
 
-    if (!isAssignedSales && !isAdmin) {
+    if (!isAssignedSales && !isAdmin && !hasUpdatePermission) {
       throw createAppError(
         "You do not have permission to verify this property",
         403
