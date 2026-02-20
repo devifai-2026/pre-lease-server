@@ -22,7 +22,7 @@ router.post(
 router.get(
   "/admin/pending-inquiries",
   authenticateUser,
-  checkRole(["Admin", "Super Admin"]),
+  checkRole(["Admin", "Super Admin", "Sales Manager"]),
   getPendingInquiries
 );
 

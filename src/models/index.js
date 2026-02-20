@@ -18,6 +18,7 @@ const SalesRelationship = require("./salesRelationship");
 const PropertyManagerNotes = require("./propertyManagerNotes");
 const PropertyInquiry = require("./propertyInquiries");
 const PropertyNotificationEvent = require("./propertyNotificationEvent");
+const PropertyVerificationLog = require("./propertyVerificationLog");
 
 // ============================================
 // USER & ROLE ASSOCIATIONS
@@ -311,6 +312,32 @@ PropertyNotificationEvent.belongsTo(Property, {
 PropertyNotificationEvent.belongsTo(User, {
   foreignKey: "user_id",
   as: "user",
+});
+
+// ============================================
+// PROPERTY VERIFICATION LOG ASSOCIATIONS
+// ============================================
+
+// Property -> PropertyVerificationLog (1:M)
+Property.hasMany(PropertyVerificationLog, {
+  foreignKey: "propertyId",
+  as: "verificationLogs",
+  onDelete: "CASCADE",
+});
+PropertyVerificationLog.belongsTo(Property, {
+  foreignKey: "propertyId",
+  as: "property",
+});
+
+// User -> PropertyVerificationLog (1:M)
+User.hasMany(PropertyVerificationLog, {
+  foreignKey: "userId",
+  as: "verificationLogs",
+  onDelete: "CASCADE",
+});
+PropertyVerificationLog.belongsTo(User, {
+  foreignKey: "userId",
+  as: "verifiedBy",
 });
 
 // ============================================

@@ -181,7 +181,10 @@ const createUser = asyncHandler(async (req, res, next) => {
 
         // Double check validation for safety (though validated above)
         if (!managerUserId) {
-          throw createAppError("Sales Executive must be assigned to a Sales Manager", 400);
+          throw createAppError(
+            "Sales Executive must be assigned to a Sales Manager",
+            400
+          );
         }
 
         salesRelationship = await SalesRelationship.create(
@@ -544,7 +547,7 @@ const getAllUsers = asyncHandler(async (req, res, next) => {
     if (isActive !== undefined) {
       whereClause.isActive = isActive === "true";
     } else {
-      // not to send the inactive users 
+      // not to send the inactive users
       whereClause.isActive = true;
     }
 
@@ -898,10 +901,7 @@ const reassignProperty = asyncHandler(async (req, res, next) => {
           attributes: ["roleName"],
           where: {
             roleName: {
-              [Op.in]: [
-                "Sales Manager",
-                "Sales Executive - Property Manager",
-              ],
+              [Op.in]: ["Sales Manager", "Sales Executive - Property Manager"],
             },
             isActive: true,
           },
@@ -1129,7 +1129,11 @@ const verifyProperty = asyncHandler(async (req, res, next) => {
       where: { propertyId, isActive: true },
       include: [
         { model: User, as: "owner", attributes: ["firstName", "lastName"] },
-        { model: User, as: "salesAgent", attributes: ["firstName", "lastName"] },
+        {
+          model: User,
+          as: "salesAgent",
+          attributes: ["firstName", "lastName"],
+        },
       ],
     });
 
@@ -1150,7 +1154,8 @@ const verifyProperty = asyncHandler(async (req, res, next) => {
       );
     }
 
-    const nextStatus = property.isVerified === "partial" ? "completed" : "partial";
+    const nextStatus =
+      property.isVerified === "partial" ? "completed" : "partial";
 
     await sequelize.transaction(async (t) => {
       await property.update({ isVerified: nextStatus }, { transaction: t });
@@ -1261,8 +1266,6 @@ const verifyProperty = asyncHandler(async (req, res, next) => {
     return next(error);
   }
 });
-
-
 
 const getAllSalesManagers = asyncHandler(async (req, res, next) => {
   const requestStartTime = Date.now();
