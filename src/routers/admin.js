@@ -10,7 +10,11 @@ const {
   reassignProperty,
   getAllSalesRelatedActiveUsers,
   verifyProperty,
+  unverifyProperty,
   getAllSalesManagers,
+  adminGetAllProperties,
+  adminGetPropertyById,
+  VERIFICATION_ALLOWED_ROLES,
 } = require("../controllers/admin");
 const {
   authenticateUser,
@@ -35,7 +39,6 @@ const superAdminRateLimiter = rateLimit({
 // ============================================
 
 // Create User - Admin, Super Admin, Sales Manager
-// (Logic inside controller handles specific role restrictions)
 router.post(
   "/users",
   authenticateUser,
@@ -47,16 +50,11 @@ router.post(
  * @route   GET /api/v1/admin/users
  * @desc    Get all users (Accessible by all authenticated users)
  */
-router.get(
-  "/users",
-  authenticateUser,
-  getAllUsers
-);
+router.get("/users", authenticateUser, getAllUsers);
 
 /**
  * @route   PUT /api/v1/admin/users/:userId
  * @desc    Update user details
- * @access  Private (USER_UPDATE permission)
  */
 router.put(
   "/users/:userId",
@@ -77,11 +75,15 @@ router.delete(
 );
 
 /**
- * @route   POST /api/v1/auth/create-super-admin
+ * @route   POST /api/v1/admin/create-super-admin
  * @desc    Create first Super Admin account (one-time only, no password)
  * @access  Public (requires secret key)
  */
 router.post("/create-super-admin", superAdminRateLimiter, createSuperAdmin);
+
+// ============================================
+// PROPERTY ASSIGNMENT
+// ============================================
 
 router.put(
   "/properties/:propertyId/assign",
@@ -105,7 +107,10 @@ router.put(
   reassignProperty
 );
 
-// ✅ NEW: Get Sales Managers
+// ============================================
+// LOOKUP ROUTES
+// ============================================
+
 router.get(
   "/sales-related-active-users/:roleName",
   authenticateUser,
@@ -113,37 +118,87 @@ router.get(
   getAllSalesRelatedActiveUsers
 );
 
-// ✅ NEW: Verify Property
-// Allowed for: Assigned Sales Executive - Property Manager, Admin, Super Admin
-// The controller handles specific assignment checks. Middleware allows broad roles.
-router.post(
-  "/properties/:propertyId/verify",
-  authenticateUser,
-  (req, res, next) => {
-    const allowedRoles = [
-      "Admin",
-      "Super Admin",
-      "Sales Executive - Property Manager",
-    ];
-    const matchedRole = req.user.roles.find((r) =>
-      allowedRoles.includes(r.roleName)
-    );
-    if (matchedRole) {
-      req.userRole = matchedRole.roleName;
-      return next();
-    }
-    return checkPermission("PROPERTY_UPDATE")(req, res, next); // Fallback sets req.userRole
-  },
-  verifyProperty
-);
-
-// ✅ NEW: Get All Sales Managers
-// Allowed for: Admin, Super Admin
 router.get(
   "/users/sales-managers",
   authenticateUser,
   checkRole(["Admin", "Super Admin"]),
   getAllSalesManagers
+);
+
+// ============================================
+// PROPERTY VERIFICATION ROUTES
+// ============================================
+
+/**
+ * Shared role middleware for verify / un-verify routes.
+ * Allows: Admin, Super Admin, Sales Executive - Property Manager
+ * Falls back to PROPERTY_UPDATE permission check.
+ */
+const verifyRoleMiddleware = (req, res, next) => {
+  const matchedRole = req.user.roles.find((r) =>
+    VERIFICATION_ALLOWED_ROLES.includes(r.roleName)
+  );
+  if (matchedRole) {
+    req.userRole = matchedRole.roleName;
+    return next();
+  }
+  return checkPermission("PROPERTY_UPDATE")(req, res, next);
+};
+
+/**
+ * @route   POST /api/v1/admin/properties/:propertyId/verify
+ * @desc    Verify a property (logs verifier + role; recalculates isVerified)
+ * @access  Admin, Super Admin, Sales Executive - Property Manager (own assignments only)
+ * @rules   One person can verify only once;
+ *          'partial' after 1st verifier;
+ *          'completed' when both role groups (sales + admin) have verified.
+ */
+router.post(
+  "/properties/:propertyId/verify",
+  authenticateUser,
+  verifyRoleMiddleware,
+  verifyProperty
+);
+
+/**
+ * @route   DELETE /api/v1/admin/properties/:propertyId/verify
+ * @desc    Remove the calling user's own verification from a property
+ * @access  Admin, Super Admin, Sales Executive - Property Manager
+ * @rules   Only removes the caller's own log entry; isVerified is recalculated from remaining logs.
+ */
+router.delete(
+  "/properties/:propertyId/verify",
+  authenticateUser,
+  verifyRoleMiddleware,
+  unverifyProperty
+);
+
+// ============================================
+// ADMIN PROPERTY FETCH ROUTES (include verificationLogs)
+// ============================================
+
+/**
+ * @route   GET /api/v1/admin/properties
+ * @desc    Get all properties with verificationLogs (admin only)
+ * @access  Admin, Super Admin
+ */
+router.get(
+  "/properties",
+  authenticateUser,
+  checkAdminOrSuperAdmin,
+  adminGetAllProperties
+);
+
+/**
+ * @route   GET /api/v1/admin/properties/:propertyId
+ * @desc    Get single property with full verificationLogs (admin only)
+ * @access  Admin, Super Admin
+ */
+router.get(
+  "/properties/:propertyId",
+  authenticateUser,
+  checkAdminOrSuperAdmin,
+  adminGetPropertyById
 );
 
 module.exports = router;

@@ -364,4 +364,5 @@ module.exports = {
   PropertyManagerNotes,
   PropertyInquiry,
   PropertyNotificationEvent,
+  PropertyVerificationLog,
 };

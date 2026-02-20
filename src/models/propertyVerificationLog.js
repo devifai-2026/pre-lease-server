@@ -24,15 +24,23 @@ const PropertyVerificationLog = sequelize.define(
       // Foreign key managed by association in index.js
     },
 
+    // ========== ROLE AT TIME OF VERIFICATION ==========
+    // Stores the verifier's role so we can enforce the
+    // "two different roles" rule for completed status.
+    roleAtVerification: {
+      type: DataTypes.STRING(100),
+      allowNull: false,
+    },
+
     // ========== STATUS ==========
     status: {
       type: DataTypes.STRING(20),
       allowNull: false,
-      defaultValue: "pending", // ← add this
+      defaultValue: "verified",
       validate: {
         isIn: {
-          args: [["pending", "verified"]],
-          msg: "Invalid status. Must be one of: pending, verified",
+          args: [["verified"]],
+          msg: "Invalid status. Must be: verified",
         },
       },
     },
@@ -43,7 +51,16 @@ const PropertyVerificationLog = sequelize.define(
     // timestamps: true,       // ✅ Inherited from global config
     // underscored: true,      // ✅ Inherited from global config
     // freezeTableName: true,  // ✅ Inherited from global config
+    indexes: [
+      {
+        // ✅ Enforces: one person can verify a property only once
+        unique: true,
+        fields: ["property_id", "user_id"],
+        name: "unique_property_user_verification",
+      },
+    ],
   }
 );
 
 module.exports = PropertyVerificationLog;
+
