@@ -1906,7 +1906,7 @@ const getAdminNotifications = asyncHandler(async (req, res, next) => {
 
     try {
         const { count, rows: notifications } = await PropertyNotificationEvent.findAndCountAll({
-            where: { userId },
+            where: { userId, is_deleted: false },
             include: [
                 {
                     model: Property,
@@ -1961,7 +1961,7 @@ const markNotificationAsRead = asyncHandler(async (req, res, next) => {
 
     try {
         const notification = await PropertyNotificationEvent.findOne({
-            where: { id: notificationId, userId }
+            where: { id: notificationId, userId, is_deleted: false }
         });
 
         if (!notification) {
@@ -1982,10 +1982,31 @@ const markAllNotificationsAsRead = asyncHandler(async (req, res, next) => {
     try {
         await PropertyNotificationEvent.update(
             { isRead: true },
-            { where: { userId, isRead: false } }
+            { where: { userId, isRead: false, is_deleted: false } }
         );
 
         return sendEncodedResponse(res, 200, true, "All notifications marked as read", {});
+    } catch (error) {
+        return next(error);
+    }
+});
+
+const deleteNotification = asyncHandler(async (req, res, next) => {
+    const { notificationId } = req.params;
+    const userId = req.user.userId;
+
+    try {
+        const notification = await PropertyNotificationEvent.findOne({
+            where: { id: notificationId, userId }
+        });
+
+        if (!notification) {
+            throw createAppError("Notification not found", 404);
+        }
+
+        await notification.update({ is_deleted: true });
+
+        return sendEncodedResponse(res, 200, true, "Notification deleted successfully", { notificationId });
     } catch (error) {
         return next(error);
     }
@@ -1995,9 +2016,10 @@ const deleteAllNotifications = asyncHandler(async (req, res, next) => {
     const userId = req.user.userId;
 
     try {
-        await PropertyNotificationEvent.destroy({
-            where: { userId }
-        });
+        await PropertyNotificationEvent.update(
+            { is_deleted: true },
+            { where: { userId, is_deleted: false } }
+        );
 
         return sendEncodedResponse(res, 200, true, "All notifications deleted", {});
     } catch (error) {
@@ -2021,6 +2043,7 @@ module.exports = {
     getAdminNotifications,
     markNotificationAsRead,
     markAllNotificationsAsRead,
+    deleteNotification,
     deleteAllNotifications,
     VERIFICATION_ALLOWED_ROLES,
 };

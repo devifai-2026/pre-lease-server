@@ -17,6 +17,7 @@ const {
   getAdminNotifications,
   markNotificationAsRead,
   markAllNotificationsAsRead,
+  deleteNotification,
   deleteAllNotifications,
   VERIFICATION_ALLOWED_ROLES,
 } = require("../controllers/admin");
@@ -225,6 +226,13 @@ router.patch("/notifications/:notificationId/read", authenticateUser, markNotifi
  * @access  Authenticated
  */
 router.patch("/notifications/read-all", authenticateUser, markAllNotificationsAsRead);
+
+/**
+ * @route   DELETE /api/v1/admin/notifications/:notificationId
+ * @desc    Soft delete a single notification for the user
+ * @access  Authenticated
+ */
+router.delete("/notifications/:notificationId", authenticateUser, deleteNotification);
 
 /**
  * @route   DELETE /api/v1/admin/notifications/clear-all

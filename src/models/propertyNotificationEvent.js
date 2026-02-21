@@ -26,6 +26,10 @@ const PropertyNotificationEvent = sequelize.define(
       type: DataTypes.BOOLEAN,
       defaultValue: false,
     },
+    is_deleted: {
+      type: DataTypes.BOOLEAN,
+      defaultValue: false,
+    },
   },
   {
     tableName: "property_notification_event",
