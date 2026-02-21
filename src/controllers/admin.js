@@ -285,7 +285,7 @@ const updateUser = asyncHandler(async (req, res, next) => {
   const requestStartTime = Date.now();
   const { userId } = req.params;
 
-  const { firstName, lastName, email, mobileNumber, roleName, isActive } =
+  const { firstName, lastName, email, mobileNumber, roleName, isActive, salesManagerId } =
     req.body;
 
   const requestBodyLog = {
@@ -370,6 +370,31 @@ const updateUser = asyncHandler(async (req, res, next) => {
           { roleId: newRole.roleId },
           { where: { userId }, transaction: t }
         );
+      }
+
+      if (salesManagerId !== undefined) {
+        const relation = await SalesRelationship.findOne({
+          where: { salesExecutiveId: userId },
+          transaction: t
+        });
+        
+        if (relation) {
+          if (salesManagerId) {
+            await relation.update({ salesManagerId }, { transaction: t });
+          } else {
+            await relation.destroy({ transaction: t });
+          }
+        } else if (salesManagerId) {
+          await SalesRelationship.create(
+            {
+              salesExecutiveId: userId,
+              salesManagerId,
+              assignedBy: req.user.userId,
+              isActive: true,
+            },
+            { transaction: t }
+          );
+        }
       }
 
       const { oldValues, newValues } = buildUpdateValues(oldRecord, updateData);
@@ -603,6 +628,12 @@ const getAllUsers = asyncHandler(async (req, res, next) => {
           attributes: ["roleId", "roleName", "roleType"],
           where: roleWhere,
         },
+        {
+          model: SalesRelationship,
+          as: "executiveRelationships",
+          where: { isActive: true },
+          required: false,
+        }
       ],
       order: [["createdAt", "DESC"]],
       limit: pageSize,
@@ -631,6 +662,7 @@ const getAllUsers = asyncHandler(async (req, res, next) => {
       role: user.roles[0]?.roleName || null,
       isActive: user.isActive,
       createdAt: user.createdAt,
+      salesManagerId: user.executiveRelationships?.[0]?.salesManagerId || null,
     }));
 
     await logRequest(
@@ -882,11 +914,10 @@ const reassignProperty = asyncHandler(async (req, res, next) => {
 
     // Check if user has Sales Manager or any Sales Executive sub-role
     const isSalesPerson = [
-      "Sales Manager",
       "Sales Executive - Property Manager",
     ].includes(req.userRole || req.user.role);
 
-    const isAdmin = ["Admin", "Super Admin"].includes(
+    const isAdminOrManager = ["Admin", "Super Admin", "Sales Manager"].includes(
       req.userRole || req.user.role
     );
 
@@ -897,7 +928,7 @@ const reassignProperty = asyncHandler(async (req, res, next) => {
           403
         );
       }
-    } else if (!isAdmin) {
+    } else if (!isAdminOrManager) {
       throw createAppError(
         "You do not have permission to reassign properties",
         403
@@ -1136,7 +1167,7 @@ const getAllSalesRelatedActiveUsers = asyncHandler(async (req, res, next) => {
 
     const assignableUsers = await User.findAll({
       where: { isActive: true },
-      attributes: ["user_id", "firstName", "lastName", "email", "mobileNumber"],
+      attributes: ["userId", "firstName", "lastName", "email", "mobileNumber"],
       include: [
         {
           model: Role,
@@ -1156,7 +1187,7 @@ const getAllSalesRelatedActiveUsers = asyncHandler(async (req, res, next) => {
     });
 
     const formattedUsers = assignableUsers.map((user) => ({
-      value: user.user_id,
+      value: user.userId,
       label: `${user.firstName} ${user.lastName}`,
       email: user.email,
       mobileNumber: user.mobileNumber,
