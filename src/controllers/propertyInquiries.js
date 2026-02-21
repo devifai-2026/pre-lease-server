@@ -3,6 +3,7 @@ const {
   PropertyInquiry,
   User,
   Role,
+  SalesRelationship,
   PropertyNotificationEvent,
 } = require("../models");
 const createAppError = require("../utils/appError");
@@ -76,7 +77,7 @@ const createPropertyInquiry = asyncHandler(async (req, res, next) => {
     // Verify property exists
     const property = await Property.findOne({
       where: { property_id: propertyId, isActive: true },
-      attributes: ["propertyId", "city", "state"],
+      attributes: ["propertyId", "city", "state", "salesId"],
     });
     if (!property) {
       throw createAppError("Property not found", 404);
@@ -122,6 +123,63 @@ const createPropertyInquiry = asyncHandler(async (req, res, next) => {
       }
 
       await transaction.commit();
+
+      // Notify admins + sales manager about the new/updated inquiry
+      try {
+        const io = getIO();
+        const inquirerName = `${req.user.firstName} ${req.user.lastName}`;
+        const message = `New inquiry received for property in ${property.city} from ${inquirerName}`;
+
+        const admins = await User.findAll({
+          include: [
+            {
+              model: Role,
+              as: "roles",
+              where: { roleName: { [Op.in]: ["Admin", "Super Admin"] } },
+              through: { attributes: [] },
+            },
+          ],
+          attributes: ["userId"],
+          raw: true,
+        });
+        const adminIds = admins.map((a) => a.userId);
+
+        let salesManagerId = null;
+        if (property.salesId) {
+          const rel = await SalesRelationship.findOne({
+            where: { salesExecutiveId: property.salesId, isActive: true },
+          });
+          if (rel) salesManagerId = rel.salesManagerId;
+        }
+
+        const recipients = new Set([...adminIds, salesManagerId]);
+        recipients.delete(null);
+        recipients.delete(undefined);
+
+        if (recipients.size > 0) {
+          const notificationRecords = [];
+          const timestamp = new Date().toISOString();
+          for (const recipientId of recipients) {
+            notificationRecords.push({
+              propertyId: property.propertyId,
+              userId: recipientId,
+              notificationText: message,
+            });
+            io.to(`user:${recipientId}`).emit("inquiry:received", {
+              inquiryId: inquiryRecord.id,
+              propertyId: property.propertyId,
+              message,
+              timestamp,
+            });
+          }
+          await PropertyNotificationEvent.bulkCreate(notificationRecords);
+        }
+      } catch (notifErr) {
+        console.error(
+          "Notification failed in createPropertyInquiry:",
+          notifErr.message
+        );
+      }
 
       await logRequest(
         req,

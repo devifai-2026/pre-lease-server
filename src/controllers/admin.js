@@ -951,13 +951,30 @@ const reassignProperty = asyncHandler(async (req, res, next) => {
 
     try {
       const io = getIO();
+      const timestamp = new Date().toISOString();
+      const notificationRecords = [
+        {
+          propertyId,
+          userId,
+          notificationText: `A property in ${result.city} has been assigned to you`,
+        },
+      ];
+      if (oldSalesId && oldSalesId !== req.user.userId) {
+        notificationRecords.push({
+          propertyId,
+          userId: oldSalesId,
+          notificationText: `A property in ${result.city} has been reassigned away from you`,
+        });
+      }
+      await PropertyNotificationEvent.bulkCreate(notificationRecords);
+
       io.to(`user:${userId}`).emit("property:assigned", {
         propertyId,
         city: result.city,
         state: result.state,
         propertyType: result.propertyType,
         assignedBy: req.user.userId,
-        timestamp: new Date().toISOString(),
+        timestamp,
       });
       if (oldSalesId && oldSalesId !== req.user.userId) {
         io.to(`user:${oldSalesId}`).emit("property:unassigned", {
@@ -967,7 +984,7 @@ const reassignProperty = asyncHandler(async (req, res, next) => {
           propertyType: result.propertyType,
           reassignedBy: req.user.userId,
           reassignedTo: userId,
-          timestamp: new Date().toISOString(),
+          timestamp,
         });
       }
     } catch (socketErr) {

@@ -850,14 +850,27 @@ const updateProperty = asyncHandler(async (req, res, next) => {
       const io = getIO();
       const prop = result.property;
       const notifyUserIds = [prop.ownerId, prop.brokerId].filter(Boolean);
-      notifyUserIds.forEach((uid) => {
-        io.to(`user:${uid}`).emit("property:updated", {
+
+      if (notifyUserIds.length > 0) {
+        const updaterName = `${req.user.firstName} ${req.user.lastName}`;
+        const message = `Your property in ${prop.city} was updated by ${updaterName}`;
+        const notificationRecords = notifyUserIds.map((uid) => ({
           propertyId: prop.propertyId,
-          updatedFields: result.updatedFields,
-          updatedBy: req.user.userId,
-          timestamp: new Date().toISOString(),
+          userId: uid,
+          notificationText: message,
+        }));
+        await PropertyNotificationEvent.bulkCreate(notificationRecords);
+
+        const timestamp = new Date().toISOString();
+        notifyUserIds.forEach((uid) => {
+          io.to(`user:${uid}`).emit("property:updated", {
+            propertyId: prop.propertyId,
+            updatedFields: result.updatedFields,
+            updatedBy: req.user.userId,
+            timestamp,
+          });
         });
-      });
+      }
     } catch (socketErr) {
       console.error("Socket notification failed:", socketErr.message);
     }

@@ -14,6 +14,7 @@ const {
   createPropertyManagerNotes,
   getAllPropertiesWithNotes,
   getPropertyWithNotes,
+  getPropertyNotesByOwner,
 } = require("../controllers/notes");
 const {
   authenticateUser,
@@ -108,6 +109,18 @@ router.get(
   authenticateUser,
   checkRole(["Sales Executive - Property Manager"]),
   getPropertyWithNotes
+);
+
+// ============================================
+// OWNER: VIEW NOTES ON THEIR OWN PROPERTY
+// ============================================
+
+// ✅ Owner can see notes added by the sales exec on their property
+router.get(
+  "/owner/properties/:propertyId/notes",
+  authenticateUser,
+  checkRole(["Owner"]),
+  getPropertyNotesByOwner
 );
 
 module.exports = router;

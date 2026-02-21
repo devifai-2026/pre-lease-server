@@ -3,6 +3,7 @@ const {
   PropertyManagerNotes,
   User,
   PropertyMedia,
+  PropertyNotificationEvent,
 } = require("../models");
 const createAppError = require("../utils/appError");
 const asyncHandler = require("../utils/asyncHandler");
@@ -10,6 +11,7 @@ const { sendEncodedResponse } = require("../utils/responseEncoder");
 const { attachSignedUrls } = require("../utils/gcsHelper");
 const { logRequest } = require("../utils/logs");
 const { sequelize } = require("../config/dbConnection");
+const { getIO } = require("../config/socket");
 
 // ============================================
 // 1) CREATE/UPDATE NOTES - Push notes to array
@@ -87,7 +89,7 @@ const createPropertyManagerNotes = asyncHandler(async (req, res, next) => {
         salesId: salesExecutiveId, // ✅ Check property.salesId matches logged-in user
         isActive: true,
       },
-      attributes: ["propertyId", "salesId", "city", "state"],
+      attributes: ["propertyId", "salesId", "ownerId", "brokerId", "city", "state"],
     });
 
     if (!property) {
@@ -147,6 +149,38 @@ const createPropertyManagerNotes = asyncHandler(async (req, res, next) => {
       }
 
       await transaction.commit();
+
+      // Notify property owner (and broker) that notes were added by the sales exec
+      try {
+        const io = getIO();
+        const salesExecName = `${req.user.firstName} ${req.user.lastName}`;
+        const message = `${salesExecName} added notes to your property in ${property.city}`;
+        const recipientIds = [property.ownerId, property.brokerId].filter(Boolean);
+
+        if (recipientIds.length > 0) {
+          const notificationRecords = recipientIds.map((uid) => ({
+            propertyId: property.propertyId,
+            userId: uid,
+            notificationText: message,
+          }));
+          await PropertyNotificationEvent.bulkCreate(notificationRecords);
+
+          const timestamp = new Date().toISOString();
+          recipientIds.forEach((uid) => {
+            io.to(`user:${uid}`).emit("property:notes_added", {
+              propertyId: property.propertyId,
+              message,
+              addedBy: req.user.userId,
+              timestamp,
+            });
+          });
+        }
+      } catch (notifErr) {
+        console.error(
+          "Notification failed in createPropertyManagerNotes:",
+          notifErr.message
+        );
+      }
 
       await logRequest(
         req,
@@ -528,8 +562,89 @@ const getPropertyWithNotes = asyncHandler(async (req, res, next) => {
   }
 });
 
+// ============================================
+// 4) GET PROPERTY NOTES — Owner Dashboard
+// ============================================
+
+/**
+ * Owner can view all notes added by the sales executive on their property.
+ * Filter: property.ownerId = req.user.userId
+ */
+const getPropertyNotesByOwner = asyncHandler(async (req, res, next) => {
+  const requestStartTime = Date.now();
+  const { propertyId } = req.params;
+  const ownerId = req.user.userId;
+
+  const requestBodyLog = { propertyId, ownerId };
+
+  try {
+    const property = await Property.findOne({
+      where: { propertyId, ownerId, isActive: true },
+      attributes: ["propertyId", "propertyType", "city", "state", "microMarket"],
+      include: [
+        {
+          model: PropertyManagerNotes,
+          as: "managerNotes",
+          where: { isActive: true },
+          required: false,
+          include: [
+            {
+              model: User,
+              as: "salesExecutive",
+              attributes: ["userId", "firstName", "lastName", "email"],
+              required: false,
+            },
+          ],
+        },
+      ],
+    });
+
+    if (!property) {
+      throw createAppError("Property not found or you don't have access", 404);
+    }
+
+    const data = property.toJSON();
+    if (data.managerNotes) {
+      data.managerNotes = data.managerNotes.map((record) => {
+        record.notes = (record.notes || []).sort(
+          (a, b) => new Date(b.createdAt) - new Date(a.createdAt)
+        );
+        return record;
+      });
+    }
+
+    await logRequest(
+      req,
+      {
+        userId: req.user.userId,
+        status: 200,
+        body: { success: true, message: "Notes fetched successfully" },
+        requestBodyLog,
+      },
+      requestStartTime
+    );
+
+    return sendEncodedResponse(res, 200, true, "Notes fetched successfully", data);
+  } catch (error) {
+    await logRequest(
+      req,
+      {
+        userId: req.user?.userId || null,
+        status: error.statusCode || 500,
+        body: { success: false, message: error.message },
+        requestBodyLog,
+        error: error.message,
+        stackTrace: error.stack,
+      },
+      requestStartTime
+    );
+    return next(error);
+  }
+});
+
 module.exports = {
-  createPropertyManagerNotes, // ✅ Renamed from createInvestorNotes
+  createPropertyManagerNotes,
   getAllPropertiesWithNotes,
   getPropertyWithNotes,
+  getPropertyNotesByOwner,
 };
