@@ -1626,7 +1626,7 @@ const adminGetAllProperties = asyncHandler(async (req, res, next) => {
                 {
                     model: PropertyVerificationLog,
                     as: "verificationLogs",
-                    attributes: ["id", "userId", "status", "createdAt"],
+                    attributes: ["id", "userId", "status", "roleAtVerification", "createdAt"],
                     where: { status: "verified" },
                     required: false,
                     include: [
@@ -1665,7 +1665,7 @@ const adminGetAllProperties = asyncHandler(async (req, res, next) => {
                     userId: log.verifiedBy?.userId,
                     name: `${log.verifiedBy?.firstName} ${log.verifiedBy?.lastName}`,
                     email: log.verifiedBy?.email,
-                    role: log.verifiedBy?.roles?.[0]?.roleName || null,
+                    role: log.roleAtVerification || log.verifiedBy?.roles?.[0]?.roleName || null,
                     verifiedAt: log.createdAt,
                 }));
                 return d;
@@ -1780,7 +1780,7 @@ const adminGetPropertyById = asyncHandler(async (req, res, next) => {
                 {
                     model: PropertyVerificationLog,
                     as: "verificationLogs",
-                    attributes: ["id", "userId", "status", "createdAt"],
+                    attributes: ["id", "userId", "status", "roleAtVerification", "createdAt"],
                     where: { status: "verified" },
                     required: false,
                     include: [
@@ -1825,7 +1825,7 @@ const adminGetPropertyById = asyncHandler(async (req, res, next) => {
             userId: log.verifiedBy?.userId,
             name: `${log.verifiedBy?.firstName} ${log.verifiedBy?.lastName}`,
             email: log.verifiedBy?.email,
-            role: log.verifiedBy?.roles?.[0]?.roleName || null,
+            role: log.roleAtVerification || log.verifiedBy?.roles?.[0]?.roleName || null,
             verifiedAt: log.createdAt,
         }));
 

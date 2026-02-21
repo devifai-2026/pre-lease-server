@@ -10,6 +10,7 @@ const {
   PropertyConnectivity,
   SalesRelationship,
   PropertyNotificationEvent,
+  PropertyVerificationLog,
 } = require("../models");
 const { sequelize } = require("../config/dbConnection");
 const createAppError = require("../utils/appError");
@@ -1484,6 +1485,20 @@ const getAllProperties = asyncHandler(async (req, res, next) => {
           ],
           required: false,
         },
+        {
+          model: PropertyVerificationLog,
+          as: "verificationLogs",
+          attributes: ["id", "userId", "status", "roleAtVerification", "createdAt"],
+          where: { status: "verified" },
+          required: false,
+          include: [
+            {
+              model: User,
+              as: "verifiedBy",
+              attributes: ["userId", "firstName", "lastName", "email"],
+            },
+          ],
+        },
       ],
       order: [[sortBy, sortOrder.toUpperCase()]],
       limit: pageSize,
@@ -1511,6 +1526,15 @@ const getAllProperties = asyncHandler(async (req, res, next) => {
         if (propertyData.media && propertyData.media.length > 0) {
           propertyData.media = await attachSignedUrls(propertyData.media);
         }
+
+        propertyData.verificationLogs = (propertyData.verificationLogs || []).map((log) => ({
+          id: log.id,
+          userId: log.verifiedBy?.userId,
+          name: `${log.verifiedBy?.firstName} ${log.verifiedBy?.lastName}`,
+          email: log.verifiedBy?.email,
+          role: log.roleAtVerification || null,
+          verifiedAt: log.createdAt,
+        }));
 
         return propertyData;
       })
@@ -1809,6 +1833,20 @@ const getAssignedProperties = asyncHandler(async (req, res, next) => {
           ],
           required: false,
         },
+        {
+          model: PropertyVerificationLog,
+          as: "verificationLogs",
+          attributes: ["id", "userId", "status", "roleAtVerification", "createdAt"],
+          where: { status: "verified" },
+          required: false,
+          include: [
+            {
+              model: User,
+              as: "verifiedBy",
+              attributes: ["userId", "firstName", "lastName", "email"],
+            },
+          ],
+        },
       ],
       order: [[sortBy, sortOrder.toUpperCase()]],
       limit: pageSize,
@@ -1836,6 +1874,15 @@ const getAssignedProperties = asyncHandler(async (req, res, next) => {
         if (propertyData.media && propertyData.media.length > 0) {
           propertyData.media = await attachSignedUrls(propertyData.media);
         }
+
+        propertyData.verificationLogs = (propertyData.verificationLogs || []).map((log) => ({
+          id: log.id,
+          userId: log.verifiedBy?.userId,
+          name: `${log.verifiedBy?.firstName} ${log.verifiedBy?.lastName}`,
+          email: log.verifiedBy?.email,
+          role: log.roleAtVerification || null,
+          verifiedAt: log.createdAt,
+        }));
 
         return propertyData;
       })
@@ -1981,6 +2028,20 @@ const getPropertyById = asyncHandler(async (req, res, next) => {
           ],
           required: false,
         },
+        {
+          model: PropertyVerificationLog,
+          as: "verificationLogs",
+          attributes: ["id", "userId", "status", "roleAtVerification", "createdAt"],
+          where: { status: "verified" },
+          required: false,
+          include: [
+            {
+              model: User,
+              as: "verifiedBy",
+              attributes: ["userId", "firstName", "lastName", "email"],
+            },
+          ],
+        },
       ],
     });
 
@@ -1994,6 +2055,15 @@ const getPropertyById = asyncHandler(async (req, res, next) => {
     if (propertyData.media && propertyData.media.length > 0) {
       propertyData.media = await attachSignedUrls(propertyData.media);
     }
+
+    propertyData.verificationLogs = (propertyData.verificationLogs || []).map((log) => ({
+      id: log.id,
+      userId: log.verifiedBy?.userId,
+      name: `${log.verifiedBy?.firstName} ${log.verifiedBy?.lastName}`,
+      email: log.verifiedBy?.email,
+      role: log.roleAtVerification || null,
+      verifiedAt: log.createdAt,
+    }));
 
     // Calculate tenure left
     if (propertyData.leaseEndDate) {
