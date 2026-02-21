@@ -1888,6 +1888,123 @@ const adminGetPropertyById = asyncHandler(async (req, res, next) => {
     }
 });
 
+const getAdminNotifications = asyncHandler(async (req, res, next) => {
+    const requestStartTime = Date.now();
+    const userId = req.user.userId;
+    const { page = 1, limit = 20 } = req.query;
+
+    const pageNumber = parseInt(page);
+    const pageSize = parseInt(limit);
+    const offset = (pageNumber - 1) * pageSize;
+
+    const requestBodyLog = {
+        userId,
+        page,
+        limit,
+        role: req.userRole
+    };
+
+    try {
+        const { count, rows: notifications } = await PropertyNotificationEvent.findAndCountAll({
+            where: { userId },
+            include: [
+                {
+                    model: Property,
+                    as: "property",
+                    attributes: ["propertyId", "city", "state", "propertyType"],
+                    required: false
+                }
+            ],
+            order: [["createdAt", "DESC"]],
+            limit: pageSize,
+            offset: offset,
+        });
+
+        const totalPages = Math.ceil(count / pageSize);
+
+        await logRequest(
+            req,
+            {
+                userId,
+                status: 200,
+                body: { success: true, message: "Notifications fetched successfully", count: notifications.length },
+                requestBodyLog,
+            },
+            requestStartTime
+        );
+
+        return sendEncodedResponse(
+            res,
+            200,
+            true,
+            "Notifications fetched successfully",
+            notifications,
+            {
+                pagination: {
+                    currentPage: pageNumber,
+                    pageSize,
+                    totalItems: count,
+                    totalPages,
+                    hasNextPage: pageNumber < totalPages,
+                    hasPrevPage: pageNumber > 1,
+                },
+            }
+        );
+    } catch (error) {
+        return next(error);
+    }
+});
+
+const markNotificationAsRead = asyncHandler(async (req, res, next) => {
+    const { notificationId } = req.params;
+    const userId = req.user.userId;
+
+    try {
+        const notification = await PropertyNotificationEvent.findOne({
+            where: { id: notificationId, userId }
+        });
+
+        if (!notification) {
+            throw createAppError("Notification not found", 404);
+        }
+
+        await notification.update({ isRead: true });
+
+        return sendEncodedResponse(res, 200, true, "Notification marked as read", { notificationId });
+    } catch (error) {
+        return next(error);
+    }
+});
+
+const markAllNotificationsAsRead = asyncHandler(async (req, res, next) => {
+    const userId = req.user.userId;
+
+    try {
+        await PropertyNotificationEvent.update(
+            { isRead: true },
+            { where: { userId, isRead: false } }
+        );
+
+        return sendEncodedResponse(res, 200, true, "All notifications marked as read", {});
+    } catch (error) {
+        return next(error);
+    }
+});
+
+const deleteAllNotifications = asyncHandler(async (req, res, next) => {
+    const userId = req.user.userId;
+
+    try {
+        await PropertyNotificationEvent.destroy({
+            where: { userId }
+        });
+
+        return sendEncodedResponse(res, 200, true, "All notifications deleted", {});
+    } catch (error) {
+        return next(error);
+    }
+});
+
 module.exports = {
     createUser,
     updateUser,
@@ -1901,5 +2018,9 @@ module.exports = {
     getAllSalesManagers,
     adminGetAllProperties,
     adminGetPropertyById,
+    getAdminNotifications,
+    markNotificationAsRead,
+    markAllNotificationsAsRead,
+    deleteAllNotifications,
     VERIFICATION_ALLOWED_ROLES,
 };

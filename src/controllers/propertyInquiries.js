@@ -200,15 +200,15 @@ const createPropertyInquiry = asyncHandler(async (req, res, next) => {
         recipients.delete(undefined);
 
         const timestamp = new Date().toISOString();
-        const notificationRecords = [];
-
         for (const recipientId of recipients) {
-          notificationRecords.push({
+          const notif = await PropertyNotificationEvent.create({
             propertyId: property.propertyId,
             userId: recipientId,
             notificationText: message,
           });
+
           io.to(`user:${recipientId}`).emit("inquiry:received", {
+            id: notif.id,
             inquiryId: inquiryRecord.id,
             propertyId: property.propertyId,
             message,
@@ -219,21 +219,19 @@ const createPropertyInquiry = asyncHandler(async (req, res, next) => {
         // Notify the dealer who was auto-assigned on inquiry creation
         if (autoAssignedTo) {
           const dealerMessage = `You have been auto-assigned to a new inquiry for property in ${property.city}`;
-          notificationRecords.push({
+          const dealerNotif = await PropertyNotificationEvent.create({
             propertyId: property.propertyId,
             userId: autoAssignedTo,
             notificationText: dealerMessage,
           });
+
           io.to(`user:${autoAssignedTo}`).emit("inquiry:assigned", {
+            id: dealerNotif.id,
             inquiryId: inquiryRecord.id,
             propertyId: property.propertyId,
             message: dealerMessage,
             timestamp,
           });
-        }
-
-        if (notificationRecords.length > 0) {
-          await PropertyNotificationEvent.bulkCreate(notificationRecords);
         }
       } catch (notifErr) {
         console.error(

@@ -14,6 +14,10 @@ const {
   getAllSalesManagers,
   adminGetAllProperties,
   adminGetPropertyById,
+  getAdminNotifications,
+  markNotificationAsRead,
+  markAllNotificationsAsRead,
+  deleteAllNotifications,
   VERIFICATION_ALLOWED_ROLES,
 } = require("../controllers/admin");
 const {
@@ -200,5 +204,33 @@ router.get(
   checkAdminOrSuperAdmin,
   adminGetPropertyById
 );
+
+/**
+ * @route   GET /api/v1/admin/notifications
+ * @desc    Get all notifications for the current admin/user
+ * @access  Authenticated
+ */
+router.get("/notifications", authenticateUser, getAdminNotifications);
+
+/**
+ * @route   PATCH /api/v1/admin/notifications/:notificationId/read
+ * @desc    Mark a single notification as read
+ * @access  Authenticated
+ */
+router.patch("/notifications/:notificationId/read", authenticateUser, markNotificationAsRead);
+
+/**
+ * @route   PATCH /api/v1/admin/notifications/read-all
+ * @desc    Mark all notifications for the user as read
+ * @access  Authenticated
+ */
+router.patch("/notifications/read-all", authenticateUser, markAllNotificationsAsRead);
+
+/**
+ * @route   DELETE /api/v1/admin/notifications/clear-all
+ * @desc    Permanently delete all notifications for the user
+ * @access  Authenticated
+ */
+router.delete("/notifications/clear-all", authenticateUser, deleteAllNotifications);
 
 module.exports = router;

@@ -22,6 +22,10 @@ const PropertyNotificationEvent = sequelize.define(
       type: DataTypes.TEXT,
       allowNull: false,
     },
+    isRead: {
+      type: DataTypes.BOOLEAN,
+      defaultValue: false,
+    },
   },
   {
     tableName: "property_notification_event",
