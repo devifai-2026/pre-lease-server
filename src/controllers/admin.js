@@ -946,6 +946,8 @@ const reassignProperty = asyncHandler(async (req, res, next) => {
         salesId: userId,
       });
       newValues.reassignedBy = req.user.userId;
+      newValues.reassignedByName = `${req.user.firstName} ${req.user.lastName}`;
+      newValues.salesAssignmentType = "manual";
 
       await logUpdate({
         userId: req.user.userId,
@@ -965,41 +967,91 @@ const reassignProperty = asyncHandler(async (req, res, next) => {
     try {
       const io = getIO();
       const timestamp = new Date().toISOString();
-      const notificationRecords = [
-        {
-          propertyId,
-          userId,
-          notificationText: `A property in ${result.city} has been assigned to you`,
-        },
-      ];
-      if (oldSalesId && oldSalesId !== req.user.userId) {
-        notificationRecords.push({
-          propertyId,
-          userId: oldSalesId,
-          notificationText: `A property in ${result.city} has been reassigned away from you`,
-        });
-      }
-      await PropertyNotificationEvent.bulkCreate(notificationRecords);
+      const assignerName = `${req.user.firstName} ${req.user.lastName}`;
+      const newAssigneeName = `${targetUser.firstName} ${targetUser.lastName}`;
+      const city = result.city;
+      const isReassign = !!oldSalesId;
 
-      io.to(`user:${userId}`).emit("property:assigned", {
-        propertyId,
-        city: result.city,
-        state: result.state,
-        propertyType: result.propertyType,
-        assignedBy: req.user.userId,
-        timestamp,
+      // Fetch old assignee name if there was one
+      let oldAssigneeName = null;
+      if (oldSalesId) {
+        const oldAssignee = await User.findByPk(oldSalesId, {
+          attributes: ["firstName", "lastName"],
+        });
+        if (oldAssignee) oldAssigneeName = `${oldAssignee.firstName} ${oldAssignee.lastName}`;
+      }
+
+      // Fetch admins & super admins
+      const admins = await User.findAll({
+        include: [{
+          model: Role,
+          as: "roles",
+          where: { roleName: { [Op.in]: ["Admin", "Super Admin"] }, isActive: true },
+          through: { attributes: [] },
+        }],
+        attributes: ["userId"],
+        raw: true,
       });
-      if (oldSalesId && oldSalesId !== req.user.userId) {
+      const adminIds = admins.map((a) => a.userId);
+
+      // Fetch sales manager of the new assignee
+      let salesManagerId = null;
+      const smRelationship = await SalesRelationship.findOne({
+        where: { salesExecutiveId: userId, isActive: true },
+      });
+      if (smRelationship) salesManagerId = smRelationship.salesManagerId;
+
+      const notificationRecords = [];
+
+      // Notify new assignee
+      const assigneeMessage = isReassign
+        ? `Property in ${city} has been reassigned to you by ${assignerName}.`
+        : `Property in ${city} has been assigned to you by ${assignerName}.`;
+      notificationRecords.push({ propertyId, userId, notificationText: assigneeMessage });
+      io.to(`user:${userId}`).emit("property:assigned", {
+        propertyId, city, state: result.state, propertyType: result.propertyType,
+        assignedBy: req.user.userId, assignedByName: assignerName, timestamp,
+      });
+
+      // Notify old assignee (if different from new and from assigner)
+      if (oldSalesId && oldSalesId !== userId) {
+        const oldMessage = `Property in ${city} has been reassigned to ${newAssigneeName} by ${assignerName}.`;
+        notificationRecords.push({ propertyId, userId: oldSalesId, notificationText: oldMessage });
         io.to(`user:${oldSalesId}`).emit("property:unassigned", {
-          propertyId,
-          city: result.city,
-          state: result.state,
-          propertyType: result.propertyType,
-          reassignedBy: req.user.userId,
-          reassignedTo: userId,
-          timestamp,
+          propertyId, city, state: result.state, propertyType: result.propertyType,
+          reassignedBy: req.user.userId, reassignedByName: assignerName,
+          reassignedTo: userId, reassignedToName: newAssigneeName, timestamp,
         });
       }
+
+      // Notify admins & super admins (skip if assigner is already an admin)
+      const adminMessage = isReassign
+        ? `Property in ${city} has been reassigned from ${oldAssigneeName || "unassigned"} to ${newAssigneeName} by ${assignerName}.`
+        : `Property in ${city} has been assigned to ${newAssigneeName} by ${assignerName}.`;
+      for (const adminId of adminIds) {
+        if (adminId === req.user.userId) continue; // don't double-notify assigner
+        notificationRecords.push({ propertyId, userId: adminId, notificationText: adminMessage });
+        io.to(`user:${adminId}`).emit("property:assigned", {
+          propertyId, city, state: result.state, propertyType: result.propertyType,
+          assignedTo: userId, assignedToName: newAssigneeName,
+          assignedBy: req.user.userId, assignedByName: assignerName, timestamp,
+        });
+      }
+
+      // Notify sales manager (skip if already notified as admin or is the assigner)
+      if (salesManagerId && salesManagerId !== req.user.userId && !adminIds.includes(salesManagerId)) {
+        const smMessage = isReassign
+          ? `Property in ${city} has been reassigned from ${oldAssigneeName || "unassigned"} to ${newAssigneeName} in your team by ${assignerName}.`
+          : `Property in ${city} has been assigned to ${newAssigneeName} in your team by ${assignerName}.`;
+        notificationRecords.push({ propertyId, userId: salesManagerId, notificationText: smMessage });
+        io.to(`user:${salesManagerId}`).emit("property:assigned", {
+          propertyId, city, state: result.state, propertyType: result.propertyType,
+          assignedTo: userId, assignedToName: newAssigneeName,
+          assignedBy: req.user.userId, assignedByName: assignerName, timestamp,
+        });
+      }
+
+      await PropertyNotificationEvent.bulkCreate(notificationRecords);
     } catch (socketErr) {
       console.error("Socket notification failed:", socketErr.message);
     }

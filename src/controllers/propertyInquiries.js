@@ -218,7 +218,7 @@ const createPropertyInquiry = asyncHandler(async (req, res, next) => {
 
         // Notify the dealer who was auto-assigned on inquiry creation
         if (autoAssignedTo) {
-          const dealerMessage = `You have been auto-assigned to a new inquiry for property in ${property.city}`;
+          const dealerMessage = `A new inquiry for property in ${property.city} has been auto-assigned to you by the system.`;
           const dealerNotif = await PropertyNotificationEvent.create({
             propertyId: property.propertyId,
             userId: autoAssignedTo,
@@ -230,6 +230,7 @@ const createPropertyInquiry = asyncHandler(async (req, res, next) => {
             inquiryId: inquiryRecord.id,
             propertyId: property.propertyId,
             message: dealerMessage,
+            assignedBy: "system",
             timestamp,
           });
         }
@@ -345,6 +346,13 @@ const assignInquiry = asyncHandler(async (req, res, next) => {
     const oldAssignedTo = inquiry.assignedTo;
     const isReassign = !!oldAssignedTo && oldAssignedTo !== assignedTo;
 
+    // Fetch property city (not loaded on inquiry)
+    const inquiryProperty = await Property.findOne({
+      where: { propertyId: inquiry.propertyId },
+      attributes: ["city"],
+    });
+    const city = inquiryProperty?.city || "unknown city";
+
     await inquiry.update(
       {
         assignedTo,
@@ -358,44 +366,93 @@ const assignInquiry = asyncHandler(async (req, res, next) => {
     // Notifications
     try {
       const io = getIO();
-      const city = inquiry.property?.city || "unknown city";
       const timestamp = new Date().toISOString();
+      const assignerName = `${req.user.firstName} ${req.user.lastName}`;
+      const newAssigneeName = `${assignee.firstName} ${assignee.lastName}`;
       const notificationRecords = [];
 
-      const newMessage = isReassign
-        ? `An inquiry for property in ${city} has been reassigned to you`
-        : `You have been assigned to a new inquiry for property in ${city}`;
+      // Fetch old assignee name if reassigning
+      let oldAssigneeName = null;
+      if (isReassign && oldAssignedTo) {
+        const oldAssignee = await User.findByPk(oldAssignedTo, { attributes: ["firstName", "lastName"] });
+        if (oldAssignee) oldAssigneeName = `${oldAssignee.firstName} ${oldAssignee.lastName}`;
+      }
 
-      notificationRecords.push({
-        propertyId: inquiry.propertyId,
-        userId: assignedTo,
-        notificationText: newMessage,
+      // Fetch admins & super admins
+      const adminUsers = await User.findAll({
+        include: [{
+          model: Role,
+          as: "roles",
+          where: { roleName: { [Op.in]: ["Admin", "Super Admin"] }, isActive: true },
+          through: { attributes: [] },
+        }],
+        attributes: ["userId"],
+        raw: true,
       });
-      io.to(`user:${assignedTo}`).emit("inquiry:assigned", {
-        inquiryId: inquiry.id,
-        propertyId: inquiry.propertyId,
-        message: newMessage,
-        timestamp,
-      });
+      const adminIds = adminUsers.map((a) => a.userId);
 
-      if (isReassign) {
-        const oldMessage = `An inquiry for property in ${city} has been reassigned away from you`;
-        notificationRecords.push({
-          propertyId: inquiry.propertyId,
-          userId: oldAssignedTo,
-          notificationText: oldMessage,
+      // Fetch sales manager of assigned dealer (via property's sales executive)
+      let salesManagerId = null;
+      const propForSM = await Property.findOne({
+        where: { propertyId: inquiry.propertyId },
+        attributes: ["salesId"],
+      });
+      if (propForSM?.salesId) {
+        const smRel = await SalesRelationship.findOne({
+          where: { salesExecutiveId: propForSM.salesId, isActive: true },
         });
+        if (smRel) salesManagerId = smRel.salesManagerId;
+      }
+
+      // Notify new assignee
+      const newMessage = isReassign
+        ? `An inquiry for property in ${city} has been reassigned to you by ${assignerName}.`
+        : `A new inquiry for property in ${city} has been assigned to you by ${assignerName}.`;
+      notificationRecords.push({ propertyId: inquiry.propertyId, userId: assignedTo, notificationText: newMessage });
+      io.to(`user:${assignedTo}`).emit("inquiry:assigned", {
+        inquiryId: inquiry.id, propertyId: inquiry.propertyId,
+        message: newMessage, assignedBy: adminId, assignedByName: assignerName, timestamp,
+      });
+
+      // Notify old assignee
+      if (isReassign && oldAssignedTo) {
+        const oldMessage = `An inquiry for property in ${city} has been reassigned to ${newAssigneeName} by ${assignerName}.`;
+        notificationRecords.push({ propertyId: inquiry.propertyId, userId: oldAssignedTo, notificationText: oldMessage });
         io.to(`user:${oldAssignedTo}`).emit("inquiry:unassigned", {
-          inquiryId: inquiry.id,
-          propertyId: inquiry.propertyId,
-          message: oldMessage,
-          timestamp,
+          inquiryId: inquiry.id, propertyId: inquiry.propertyId,
+          message: oldMessage, reassignedBy: adminId, reassignedByName: assignerName,
+          reassignedTo: assignedTo, reassignedToName: newAssigneeName, timestamp,
         });
       }
 
-      await PropertyNotificationEvent.bulkCreate(notificationRecords, {
-        transaction,
-      });
+      // Notify admins & super admins
+      const adminMessage = isReassign
+        ? `Inquiry for property in ${city} has been reassigned from ${oldAssigneeName || "unassigned"} to ${newAssigneeName} by ${assignerName}.`
+        : `A new inquiry for property in ${city} has been assigned to ${newAssigneeName} by ${assignerName}.`;
+      for (const aId of adminIds) {
+        if (aId === adminId) continue; // skip if assigner is admin
+        notificationRecords.push({ propertyId: inquiry.propertyId, userId: aId, notificationText: adminMessage });
+        io.to(`user:${aId}`).emit("inquiry:assigned", {
+          inquiryId: inquiry.id, propertyId: inquiry.propertyId,
+          message: adminMessage, assignedTo, assignedToName: newAssigneeName,
+          assignedBy: adminId, assignedByName: assignerName, timestamp,
+        });
+      }
+
+      // Notify sales manager
+      if (salesManagerId && salesManagerId !== adminId && !adminIds.includes(salesManagerId)) {
+        const smMessage = isReassign
+          ? `Inquiry for property in ${city} has been reassigned from ${oldAssigneeName || "unassigned"} to ${newAssigneeName} by ${assignerName}.`
+          : `A new inquiry for property in ${city} has been assigned to ${newAssigneeName} by ${assignerName}.`;
+        notificationRecords.push({ propertyId: inquiry.propertyId, userId: salesManagerId, notificationText: smMessage });
+        io.to(`user:${salesManagerId}`).emit("inquiry:assigned", {
+          inquiryId: inquiry.id, propertyId: inquiry.propertyId,
+          message: smMessage, assignedTo, assignedToName: newAssigneeName,
+          assignedBy: adminId, assignedByName: assignerName, timestamp,
+        });
+      }
+
+      await PropertyNotificationEvent.bulkCreate(notificationRecords, { transaction });
     } catch (err) {
       console.error("Notification failed in assignInquiry:", err.message);
     }
@@ -543,23 +600,69 @@ const autoAssignInquiry = asyncHandler(async (req, res, next) => {
     // Notifications
     try {
       const io = getIO();
-      const message = `You have been auto-assigned to a new inquiry for property in ${inquiry.property?.city || "unknown city"}`;
+      const adminName = `${req.user.firstName} ${req.user.lastName}`;
+      const inquiryCity = inquiry.property?.city || "unknown city";
+      const timestamp = new Date().toISOString();
+      const notificationRecords = [];
 
-      await PropertyNotificationEvent.create(
-        {
-          propertyId: inquiry.propertyId,
-          userId: bestDealerId,
-          notificationText: message,
-        },
-        { transaction }
-      );
+      // Fetch best dealer name
+      const bestDealer = await User.findByPk(bestDealerId, { attributes: ["firstName", "lastName"] });
+      const bestDealerName = bestDealer ? `${bestDealer.firstName} ${bestDealer.lastName}` : "a Sales Executive";
 
-      io.to(`user:${bestDealerId}`).emit("inquiry:assigned", {
-        inquiryId: inquiry.id,
-        propertyId: inquiry.propertyId,
-        message,
-        timestamp: new Date().toISOString(),
+      // Fetch admins & super admins
+      const adminUsers = await User.findAll({
+        include: [{
+          model: Role,
+          as: "roles",
+          where: { roleName: { [Op.in]: ["Admin", "Super Admin"] }, isActive: true },
+          through: { attributes: [] },
+        }],
+        attributes: ["userId"],
+        raw: true,
       });
+      const adminIds = adminUsers.map((a) => a.userId);
+
+      // Fetch sales manager via property's sales executive
+      let salesManagerId = null;
+      if (inquiry.property?.salesId) {
+        const smRel = await SalesRelationship.findOne({
+          where: { salesExecutiveId: inquiry.property.salesId, isActive: true },
+        });
+        if (smRel) salesManagerId = smRel.salesManagerId;
+      }
+
+      // Notify dealer (new assignee)
+      const dealerMessage = `A new inquiry for property in ${inquiryCity} has been auto-assigned to you by ${adminName}.`;
+      notificationRecords.push({ propertyId: inquiry.propertyId, userId: bestDealerId, notificationText: dealerMessage });
+      io.to(`user:${bestDealerId}`).emit("inquiry:assigned", {
+        inquiryId: inquiry.id, propertyId: inquiry.propertyId,
+        message: dealerMessage, assignedBy: adminId, assignedByName: adminName, timestamp,
+      });
+
+      // Notify admins & super admins
+      const adminMessage = `An inquiry for property in ${inquiryCity} has been auto-assigned to ${bestDealerName} by ${adminName}.`;
+      for (const aId of adminIds) {
+        if (aId === adminId) continue;
+        notificationRecords.push({ propertyId: inquiry.propertyId, userId: aId, notificationText: adminMessage });
+        io.to(`user:${aId}`).emit("inquiry:assigned", {
+          inquiryId: inquiry.id, propertyId: inquiry.propertyId,
+          message: adminMessage, assignedTo: bestDealerId, assignedToName: bestDealerName,
+          assignedBy: adminId, assignedByName: adminName, timestamp,
+        });
+      }
+
+      // Notify sales manager
+      if (salesManagerId && salesManagerId !== adminId && !adminIds.includes(salesManagerId)) {
+        const smMessage = `An inquiry for property in ${inquiryCity} has been auto-assigned to ${bestDealerName} by ${adminName}.`;
+        notificationRecords.push({ propertyId: inquiry.propertyId, userId: salesManagerId, notificationText: smMessage });
+        io.to(`user:${salesManagerId}`).emit("inquiry:assigned", {
+          inquiryId: inquiry.id, propertyId: inquiry.propertyId,
+          message: smMessage, assignedTo: bestDealerId, assignedToName: bestDealerName,
+          assignedBy: adminId, assignedByName: adminName, timestamp,
+        });
+      }
+
+      await PropertyNotificationEvent.bulkCreate(notificationRecords, { transaction });
     } catch (err) {
       console.error("Notification failed in autoAssignInquiry:", err.message);
     }

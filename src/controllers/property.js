@@ -487,6 +487,8 @@ const createProperty = asyncHandler(async (req, res, next) => {
           salesId: property.salesId,
           caretakerId: property.caretakerId,
           createdBy: userRole,
+          salesAssignmentType: assignedSalesId ? "auto" : null,
+          salesAssignedBy: assignedSalesId ? "system" : null,
           amenityCount: amenityIds ? amenityIds.length : 0,
           mediaCount: mediaRecords.length,
           connectivityCount: connectivityRecords.length,
@@ -543,11 +545,18 @@ const createProperty = asyncHandler(async (req, res, next) => {
       const io = getIO();
       const propId = result.property.propertyId;
       const createdByUserId = req.user.userId;
+      const creatorName = `${req.user.firstName} ${req.user.lastName}`;
+      const city = result.property.city;
+      const timestamp = new Date().toISOString();
 
-      // 1. Identify Recipients
       // a. Assigned Sales Executive - Property Manager
       const assignedSalesUser = assignedSalesId
-        ? await User.findByPk(assignedSalesId)
+        ? await User.findByPk(assignedSalesId, {
+            attributes: ["userId", "firstName", "lastName"],
+          })
+        : null;
+      const executiveName = assignedSalesUser
+        ? `${assignedSalesUser.firstName} ${assignedSalesUser.lastName}`
         : null;
 
       // b. Admins & Super Admins
@@ -574,42 +583,40 @@ const createProperty = asyncHandler(async (req, res, next) => {
         if (relationship) salesManagerId = relationship.salesManagerId;
       }
 
-      // Collect all unique notification recipients
-      const recipients = new Set([
-        ...adminIds,
-        assignedSalesId,
-        salesManagerId,
-      ]);
-      recipients.delete(null);
-      recipients.delete(undefined);
-      // Don't notify the creator if they are one of the recipients (optional, depending on req)
-      // recipients.delete(createdByUserId); 
-
-      // 2. Prepare Notification Text
-      // "${Owner's name} have added a property"
-      const ownerName = `${req.user.firstName} ${req.user.lastName}`;
-      const notificationMessage = `${ownerName} has added a new property in ${result.property.city}`;
-
-      // 3. Insert Notifications and Send Socket Events
       const notificationRecords = [];
-      const timestamp = new Date().toISOString();
 
-      for (const recipientId of recipients) {
-        // DB Notification
-        notificationRecords.push({
-          propertyId: propId,
-          userId: recipientId,
-          notificationText: notificationMessage,
-        });
-
-        // Socket Event
-        io.to(`user:${recipientId}`).emit("property:created", {
-          propertyId: propId,
-          message: notificationMessage,
-          city: result.property.city,
+      // Notify Admins
+      for (const adminId of adminIds) {
+        const message = assignedSalesId
+          ? `${creatorName} has added a new property in ${city}. It has been auto-assigned to ${executiveName}.`
+          : `${creatorName} has added a new property in ${city}. No Sales Executive was available for auto-assignment.`;
+        notificationRecords.push({ propertyId: propId, userId: adminId, notificationText: message });
+        io.to(`user:${adminId}`).emit("property:created", {
+          propertyId: propId, message, city,
           propertyType: result.property.propertyType,
-          createdBy: createdByUserId,
-          timestamp,
+          createdBy: createdByUserId, assignedTo: assignedSalesId, timestamp,
+        });
+      }
+
+      // Notify assigned Sales Executive
+      if (assignedSalesId) {
+        const message = `A new property in ${city} has been auto-assigned to you by the system (added by ${creatorName}).`;
+        notificationRecords.push({ propertyId: propId, userId: assignedSalesId, notificationText: message });
+        io.to(`user:${assignedSalesId}`).emit("property:created", {
+          propertyId: propId, message, city,
+          propertyType: result.property.propertyType,
+          assignedBy: "system", createdBy: createdByUserId, timestamp,
+        });
+      }
+
+      // Notify Sales Manager
+      if (salesManagerId) {
+        const message = `${creatorName} has added a new property in ${city}. It has been auto-assigned to ${executiveName} in your team.`;
+        notificationRecords.push({ propertyId: propId, userId: salesManagerId, notificationText: message });
+        io.to(`user:${salesManagerId}`).emit("property:created", {
+          propertyId: propId, message, city,
+          propertyType: result.property.propertyType,
+          assignedTo: assignedSalesId, createdBy: createdByUserId, timestamp,
         });
       }
 
