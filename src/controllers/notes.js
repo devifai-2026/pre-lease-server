@@ -82,19 +82,33 @@ const createPropertyManagerNotes = asyncHandler(async (req, res, next) => {
       }
     }
 
-    // ✅ FIXED: Verify property exists and sales exec has access
+    // ✅ Relaxed permission: Admin and Sales Manager can add notes to any property
+    const isAdminOrManager = ["Admin", "Super Admin", "Sales Manager"].includes(
+      req.user.role
+    );
+
+    const where = { propertyId, isActive: true };
+    if (!isAdminOrManager) {
+      where.salesId = salesExecutiveId; // Sales Executives can only add notes to their assigned properties
+    }
+
     const property = await Property.findOne({
-      where: {
-        propertyId,
-        salesId: salesExecutiveId, // ✅ Check property.salesId matches logged-in user
-        isActive: true,
-      },
-      attributes: ["propertyId", "salesId", "ownerId", "brokerId", "city", "state"],
+      where,
+      attributes: [
+        "propertyId",
+        "salesId",
+        "ownerId",
+        "brokerId",
+        "city",
+        "state",
+      ],
     });
 
     if (!property) {
       throw createAppError(
-        "Property not found or you don't have permission to add notes",
+        isAdminOrManager
+          ? "Property not found"
+          : "Property not found or you don't have permission to add notes",
         404
       );
     }
@@ -412,13 +426,19 @@ const getPropertyWithNotes = asyncHandler(async (req, res, next) => {
   };
 
   try {
+    // ✅ Relaxed permission: Admin and Sales Manager can view any property notes
+    const isAdminOrManager = ["Admin", "Super Admin", "Sales Manager"].includes(
+      req.user.role
+    );
+
+    const where = { propertyId, isActive: true };
+    if (!isAdminOrManager) {
+      where.salesId = salesExecutiveId; // Sales Executives only see notes for assigned properties
+    }
+
     // ✅ OPTIMIZED: Single query with LEFT JOIN to property_manager_notes
     const property = await Property.findOne({
-      where: {
-        propertyId,
-        salesId: salesExecutiveId, // Only properties assigned to this sales exec
-        isActive: true,
-      },
+      where,
       attributes: [
         "propertyId",
         "propertyType",
@@ -642,9 +662,91 @@ const getPropertyNotesByOwner = asyncHandler(async (req, res, next) => {
   }
 });
 
+/**
+ * Owner can view all notes for all their properties in one list.
+ * Filter: property.ownerId = req.user.userId
+ */
+const getAllOwnerNotes = asyncHandler(async (req, res, next) => {
+  const requestStartTime = Date.now();
+  const ownerId = req.user.userId;
+
+  try {
+    const properties = await Property.findAll({
+      where: { ownerId, isActive: true },
+      attributes: ["propertyId", "microMarket", "city", "state"],
+      include: [
+        {
+          model: PropertyManagerNotes,
+          as: "managerNotes",
+          where: { isActive: true },
+          required: true, // Only fetch properties that actually have notes
+          include: [
+            {
+              model: User,
+              as: "salesExecutive",
+              attributes: ["userId", "firstName", "lastName", "email"],
+              required: false,
+            },
+          ],
+        },
+      ],
+    });
+
+    // Flatten it into a list of notes with property context
+    const allNotes = [];
+    properties.forEach((prop) => {
+      const propData = prop.toJSON();
+      if (propData.managerNotes) {
+        propData.managerNotes.forEach((record) => {
+          record.notes.forEach((n) => {
+            allNotes.push({
+              note: n.note,
+              createdAt: n.createdAt,
+              propertyId: propData.propertyId,
+              microMarket: propData.microMarket,
+              location: `${propData.city}, ${propData.state}`,
+              addedBy: record.salesExecutive
+                ? `${record.salesExecutive.firstName} ${record.salesExecutive.lastName}`
+                : "System",
+            });
+          });
+        });
+      }
+    });
+
+    // Sort all notes by latest first
+    allNotes.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+
+    await logRequest(
+      req,
+      {
+        userId: req.user.userId,
+        status: 200,
+        body: {
+          success: true,
+          message: "All owner notes fetched successfully",
+          count: allNotes.length,
+        },
+      },
+      requestStartTime
+    );
+
+    return sendEncodedResponse(
+      res,
+      200,
+      true,
+      "All notes fetched successfully",
+      allNotes
+    );
+  } catch (error) {
+    return next(error);
+  }
+});
+
 module.exports = {
   createPropertyManagerNotes,
   getAllPropertiesWithNotes,
   getPropertyWithNotes,
   getPropertyNotesByOwner,
+  getAllOwnerNotes,
 };

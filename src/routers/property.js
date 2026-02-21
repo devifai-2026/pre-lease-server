@@ -15,6 +15,7 @@ const {
   getAllPropertiesWithNotes,
   getPropertyWithNotes,
   getPropertyNotesByOwner,
+  getAllOwnerNotes,
 } = require("../controllers/notes");
 const {
   authenticateUser,
@@ -99,7 +100,12 @@ router.post(
 router.get(
   "/notes/properties",
   authenticateUser,
-  checkRole(["Sales Executive - Property Manager"]),
+  checkRole([
+    "Admin",
+    "Super Admin",
+    "Sales Manager",
+    "Sales Executive - Property Manager",
+  ]),
   getAllPropertiesWithNotes
 );
 
@@ -107,7 +113,12 @@ router.get(
 router.get(
   "/notes/:propertyId",
   authenticateUser,
-  checkRole(["Sales Executive - Property Manager"]),
+  checkRole([
+    "Admin",
+    "Super Admin",
+    "Sales Manager",
+    "Sales Executive - Property Manager",
+  ]),
   getPropertyWithNotes
 );
 
@@ -122,5 +133,8 @@ router.get(
   checkRole(["Owner"]),
   getPropertyNotesByOwner
 );
+
+// ✅ Owner can see all notes for all their properties
+router.get("/owner/notes", authenticateUser, checkRole(["Owner"]), getAllOwnerNotes);
 
 module.exports = router;

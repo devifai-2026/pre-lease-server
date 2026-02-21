@@ -80,6 +80,7 @@ const ALLOWED_UPDATE_FIELDS = [
   "upcomingDevelopments",
   "description",
   "otherAmenities",
+  "maintainedById",
 ];
 
 const createProperty = asyncHandler(async (req, res, next) => {
@@ -721,7 +722,39 @@ const updateProperty = asyncHandler(async (req, res, next) => {
       }
     }
 
-    if (caretakerId !== undefined) {
+    // Map payload fields to model fields if they differ
+    if (req.body.carpetAreaSqft !== undefined) {
+      updateData.carpetArea = req.body.carpetAreaSqft;
+      delete updateData.carpetAreaSqft;
+    }
+    if (req.body.parkingSlots !== undefined) {
+      updateData.parkingFourWheeler = req.body.parkingSlots;
+      delete updateData.parkingSlots;
+    }
+    if (req.body.parkingRatio !== undefined) {
+      updateData.parkingTwoWheeler = req.body.parkingRatio;
+      delete updateData.parkingRatio;
+    }
+    if (req.body.lastRefurbished !== undefined) {
+      updateData.lastRefurbishedYear = req.body.lastRefurbished;
+      delete updateData.lastRefurbished;
+    }
+    if (req.body.numberOfLifts !== undefined) {
+      updateData.numberOfLifts = req.body.numberOfLifts;
+    }
+    if (req.body.powerBackupKva !== undefined) {
+      updateData.powerBackup = req.body.powerBackupKva;
+      delete updateData.powerBackupKva;
+    }
+    if (req.body.description !== undefined) {
+      updateData.description = req.body.description;
+    }
+    if (req.body.otherAmenities !== undefined) {
+      updateData.additionalDescription = req.body.otherAmenities;
+      delete updateData.otherAmenities;
+    }
+
+    if (caretakerId !== undefined && caretakerId !== "" && caretakerId !== "null") {
       if (caretakerId !== null) {
         const caretaker = await Caretaker.findOne({
           where: { caretakerId, isActive: true },
@@ -730,7 +763,9 @@ const updateProperty = asyncHandler(async (req, res, next) => {
           throw createAppError("Invalid caretaker ID", 400);
         }
       }
-      updateData.caretakerId = caretakerId;
+      updateData.maintainedById = caretakerId;
+    } else if (caretakerId === "" || caretakerId === "null") {
+      updateData.maintainedById = null;
     }
 
     if (amenityIds && amenityIds.length > 0) {
