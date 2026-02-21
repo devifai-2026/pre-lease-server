@@ -16,6 +16,7 @@ const {
   getPropertyWithNotes,
   getPropertyNotesByOwner,
   getAllOwnerNotes,
+  addOwnerNoteForProperty,
 } = require("../controllers/notes");
 const {
   authenticateUser,
@@ -136,5 +137,13 @@ router.get(
 
 // ✅ Owner can see all notes for all their properties
 router.get("/owner/notes", authenticateUser, checkRole(["Owner"]), getAllOwnerNotes);
+
+// ✅ Owner can add notes to their property
+router.post(
+  "/owner/properties/:propertyId/notes",
+  authenticateUser,
+  checkRole(["Owner"]),
+  addOwnerNoteForProperty
+);
 
 module.exports = router;

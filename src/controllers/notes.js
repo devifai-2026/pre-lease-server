@@ -742,11 +742,119 @@ const getAllOwnerNotes = asyncHandler(async (req, res, next) => {
     return next(error);
   }
 });
+/**
+ * Owner can add notes to their own property until it is completely verified.
+ */
+const addOwnerNoteForProperty = asyncHandler(async (req, res, next) => {
+  const requestStartTime = Date.now();
+  const { propertyId } = req.params;
+  const { note } = req.body;
+  const ownerId = req.user.userId;
 
+  const requestBodyLog = { propertyId, ownerId };
+
+  try {
+    if (!note || typeof note !== "string" || note.trim().length === 0) {
+      throw createAppError("A valid note is required", 400);
+    }
+
+    const noteText = note.trim();
+    if (noteText.length > 5000) {
+      throw createAppError("Note cannot exceed 5000 characters", 400);
+    }
+
+    const property = await Property.findOne({
+      where: { propertyId, ownerId, isActive: true },
+      attributes: ["propertyId", "isVerified"],
+    });
+
+    if (!property) {
+      throw createAppError("Property not found or you don't have access", 404);
+    }
+
+    if (property.isVerified === "completed") {
+      throw createAppError("Cannot add notes to a property that is fully verified", 403);
+    }
+
+    const transaction = await sequelize.transaction();
+
+    try {
+      // Use the ownerId as salesExecutiveId, as that's how notes are grouped by user for this property.
+      // This will neatly show up in the owner's name since the relationship hooks to User table.
+      let noteRecord = await PropertyManagerNotes.findOne({
+        where: {
+          propertyId,
+          salesExecutiveId: ownerId,
+        },
+        transaction,
+      });
+
+      const noteObj = {
+        note: noteText,
+        createdAt: new Date().toISOString(),
+      };
+
+      if (!noteRecord) {
+        await PropertyManagerNotes.create(
+          {
+            propertyId,
+            salesExecutiveId: ownerId,
+            notes: [noteObj],
+            totalNotesCount: 1,
+            isActive: true,
+          },
+          { transaction }
+        );
+      } else {
+        PropertyManagerNotes.pushNotes(noteRecord, [noteObj]);
+        await noteRecord.save({ transaction });
+      }
+
+      await transaction.commit();
+
+      await logRequest(
+        req,
+        {
+          userId: ownerId,
+          status: 201,
+          body: { success: true, message: "Note added successfully" },
+          requestBodyLog,
+        },
+        requestStartTime
+      );
+
+      return sendEncodedResponse(
+        res,
+        201,
+        true,
+        "Note added successfully",
+        { note: noteObj }
+      );
+    } catch (error) {
+      await transaction.rollback();
+      throw error;
+    }
+  } catch (error) {
+    await logRequest(
+      req,
+      {
+        userId: req.user?.userId || null,
+        status: error.statusCode || 500,
+        body: { success: false, message: error.message },
+        requestBodyLog,
+        error: error.message,
+        stackTrace: error.stack,
+      },
+      requestStartTime
+    );
+    return next(error);
+  }
+});
 module.exports = {
   createPropertyManagerNotes,
   getAllPropertiesWithNotes,
   getPropertyWithNotes,
   getPropertyNotesByOwner,
   getAllOwnerNotes,
+  addOwnerNoteForProperty,
 };
