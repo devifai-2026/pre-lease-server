@@ -1353,6 +1353,8 @@ const getAllProperties = asyncHandler(async (req, res, next) => {
     city,
     state,
     microMarket,
+    amenityIds,
+    bedrooms,
     sortBy = "createdAt",
     sortOrder = "DESC",
   } = req.query;
@@ -1384,6 +1386,14 @@ const getAllProperties = asyncHandler(async (req, res, next) => {
     if (propertyTypes) {
       const typesArray = propertyTypes.split(",").map((type) => type.trim());
       whereClause.propertyType = { [Op.in]: typesArray };
+    }
+
+    if (bedrooms) {
+      const bArray = bedrooms.split(",").map((b) => b.trim());
+      // Try to find the bedroom string inside description
+      whereClause.description = {
+        [Op.or]: bArray.map((b) => ({ [Op.iLike]: `%${b}%` })),
+      };
     }
 
     if (minRent || maxRent) {
@@ -1511,8 +1521,8 @@ const getAllProperties = asyncHandler(async (req, res, next) => {
           as: "amenities",
           attributes: ["amenityId", "amenityName"],
           through: { attributes: [] },
-          where: { isActive: true },
-          required: false,
+          where: amenityIds ? { amenityId: { [Op.in]: amenityIds.split(",") }, isActive: true } : { isActive: true },
+          required: amenityIds ? true : false,
         },
         {
           model: PropertyMedia,

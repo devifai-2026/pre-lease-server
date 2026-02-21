@@ -683,9 +683,11 @@ const refreshAccessToken = asyncHandler(async (req, res, next) => {
     const data = {
       userId: user.userId,
       role: activeRoleName,
+      roles: user.roles.map((r) => r.roleName),
       accessToken: newAccessToken,
       name: `${user.firstName} ${user.lastName}`,
       email: user.email,
+      mobileNumber: user.mobileNumber,
     };
 
     await logRequest(
