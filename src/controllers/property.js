@@ -1461,6 +1461,8 @@ const getAllProperties = asyncHandler(async (req, res, next) => {
       where: whereClause,
       attributes: [
         "propertyId",
+        "ownerId",
+        "brokerId",
         "propertyType",
         "carpetArea",
         "carpetAreaUnit",
@@ -1575,6 +1577,7 @@ const getAllProperties = asyncHandler(async (req, res, next) => {
     const propertiesWithTenure = await Promise.all(
       properties.map(async (property) => {
         const propertyData = property.toJSON();
+        propertyData.added_by = propertyData.ownerId || propertyData.brokerId;
 
         if (propertyData.leaseEndDate) {
           const now = new Date();
@@ -1810,6 +1813,8 @@ const getAssignedProperties = asyncHandler(async (req, res, next) => {
       where: whereClause,
       attributes: [
         "propertyId",
+        "ownerId",
+        "brokerId",
         "propertyType",
         "carpetArea",
         "carpetAreaUnit",
@@ -1924,6 +1929,7 @@ const getAssignedProperties = asyncHandler(async (req, res, next) => {
     const propertiesWithTenure = await Promise.all(
       properties.map(async (property) => {
         const propertyData = property.toJSON();
+        propertyData.added_by = propertyData.ownerId || propertyData.brokerId;
 
         if (propertyData.leaseEndDate) {
           const now = new Date();
@@ -2117,6 +2123,7 @@ const getPropertyById = asyncHandler(async (req, res, next) => {
     }
 
     const propertyData = property.toJSON();
+    propertyData.added_by = propertyData.ownerId || propertyData.brokerId;
 
     // Attach GCS Signed URLs for media
     if (propertyData.media && propertyData.media.length > 0) {
