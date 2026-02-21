@@ -214,13 +214,6 @@ router.get(
 router.get("/notifications", authenticateUser, getAdminNotifications);
 
 /**
- * @route   PATCH /api/v1/admin/notifications/:notificationId/read
- * @desc    Mark a single notification as read
- * @access  Authenticated
- */
-router.patch("/notifications/:notificationId/read", authenticateUser, markNotificationAsRead);
-
-/**
  * @route   PATCH /api/v1/admin/notifications/read-all
  * @desc    Mark all notifications for the user as read
  * @access  Authenticated
@@ -228,11 +221,11 @@ router.patch("/notifications/:notificationId/read", authenticateUser, markNotifi
 router.patch("/notifications/read-all", authenticateUser, markAllNotificationsAsRead);
 
 /**
- * @route   DELETE /api/v1/admin/notifications/:notificationId
- * @desc    Soft delete a single notification for the user
+ * @route   PATCH /api/v1/admin/notifications/:notificationId/read
+ * @desc    Mark a single notification as read
  * @access  Authenticated
  */
-router.delete("/notifications/:notificationId", authenticateUser, deleteNotification);
+router.patch("/notifications/:notificationId/read", authenticateUser, markNotificationAsRead);
 
 /**
  * @route   DELETE /api/v1/admin/notifications/clear-all
@@ -240,5 +233,12 @@ router.delete("/notifications/:notificationId", authenticateUser, deleteNotifica
  * @access  Authenticated
  */
 router.delete("/notifications/clear-all", authenticateUser, deleteAllNotifications);
+
+/**
+ * @route   DELETE /api/v1/admin/notifications/:notificationId
+ * @desc    Soft delete a single notification for the user
+ * @access  Authenticated
+ */
+router.delete("/notifications/:notificationId", authenticateUser, deleteNotification);
 
 module.exports = router;
