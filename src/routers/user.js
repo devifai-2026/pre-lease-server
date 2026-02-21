@@ -9,6 +9,7 @@ const {
   switchRole,
   sendOtpHandler,
   verifyOtpHandler,
+  getClientUsers,
 } = require("../controllers/user");
 const { authenticateUser } = require("../middlewares/auth");
 
@@ -79,5 +80,6 @@ userrouter.post("/logout", logout);
  */
 userrouter.get("/refresh-token", refreshRateLimiter, refreshAccessToken);
 userrouter.post("/switch-role", authenticateUser, switchRole);
+userrouter.get("/get-client-users", authenticateUser, getClientUsers);
 
 module.exports = userrouter;

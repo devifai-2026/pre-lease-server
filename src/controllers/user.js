@@ -171,18 +171,33 @@ const signup = asyncHandler(async (req, res, next) => {
       }
     }
 
+    // Normalize roleName to handle common typos like Inverstor or Invertor
+    let normalizedRoleName = roleName || "Broker";
+    if (normalizedRoleName === "Investor" || normalizedRoleName === "Invertor") {
+      // Check if DB uses spelling with 's' or 't' or correct one
+      const possibleNames = ["Investor", "Inverstor", "Invertor"];
+      const existingRole = await Role.findOne({
+        where: {
+          roleName: { [Op.in]: possibleNames },
+          isActive: true
+        }
+      });
+      if (existingRole) {
+        normalizedRoleName = existingRole.roleName;
+      }
+    }
+
     // Find role from roles table
     const roleRecord = await Role.findOne({
       where: {
-        roleName: roleName || "Broker",
-        roleType: "client",
+        roleName: normalizedRoleName,
         isActive: true,
       },
     });
 
     if (!roleRecord) {
       throw createAppError(
-        "Invalid role. Please choose: Owner, Investor, or Broker",
+        "Invalid role. Please choose a valid role from the list.",
         400
       );
     }
@@ -196,7 +211,7 @@ const signup = asyncHandler(async (req, res, next) => {
           lastName,
           email,
           mobileNumber,
-          userType: "client",
+          userType: roleRecord.roleType || "client",
           isActive: true,
           reraNumber: reraNumber || null,
         },
@@ -375,22 +390,32 @@ const login = asyncHandler(async (req, res, next) => {
 
     // If roleName is provided and it's a client role, add it if not already assigned
     if (roleName && existingUser.userType === "client") {
-      const validClientRoles = ["Owner", "Broker", "Investor"];
-      if (!validClientRoles.includes(roleName)) {
+      // Normalize roleName to handle common typos like Inverstor or Invertor
+      let normalizedRoleName = roleName;
+      if (normalizedRoleName === "Investor" || normalizedRoleName === "Invertor") {
+        const possibleNames = ["Investor", "Inverstor", "Invertor"];
+        const existingRole = await Role.findOne({
+          where: { roleName: { [Op.in]: possibleNames }, isActive: true }
+        });
+        if (existingRole) normalizedRoleName = existingRole.roleName;
+      }
+
+      const validClientRoles = ["Owner", "Broker", "Investor", "Inverstor", "Invertor"];
+      if (!validClientRoles.includes(normalizedRoleName)) {
         throw createAppError(
-          "Invalid role. Please choose: Owner, Investor, or Broker",
+          "Invalid role. Please choose a valid role from the list.",
           400
         );
       }
 
       const alreadyHasRole = existingUser.roles.some(
-        (r) => r.roleName === roleName
+        (r) => r.roleName === normalizedRoleName
       );
 
       if (!alreadyHasRole) {
         // Find the role record
         const newRoleRecord = await Role.findOne({
-          where: { roleName, roleType: "client", isActive: true },
+          where: { roleName: normalizedRoleName, roleType: "client", isActive: true },
         });
 
         if (!newRoleRecord) {
@@ -721,20 +746,30 @@ const switchRole = asyncHandler(async (req, res, next) => {
       throw createAppError("roleName is required", 400);
     }
 
+    // Normalize roleName
+    let normalizedRoleName = roleName;
+    if (normalizedRoleName === "Investor" || normalizedRoleName === "Invertor") {
+      const possibleNames = ["Investor", "Inverstor", "Invertor"];
+      const existingRole = await Role.findOne({
+        where: { roleName: { [Op.in]: possibleNames }, isActive: true }
+      });
+      if (existingRole) normalizedRoleName = existingRole.roleName;
+    }
+
     // Only client roles can be switched
-    const validClientRoles = ["Owner", "Broker", "Investor"];
-    if (!validClientRoles.includes(roleName)) {
+    const validClientRoles = ["Owner", "Broker", "Investor", "Inverstor", "Invertor"];
+    if (!validClientRoles.includes(normalizedRoleName)) {
       throw createAppError(
-        "Only client roles (Owner, Broker, Investor) can be switched",
+        `Only client roles (${validClientRoles.join(", ")}) can be switched`,
         400
       );
     }
 
-    const targetRole = req.user.roles.find((r) => r.roleName === roleName);
+    const targetRole = req.user.roles.find((r) => r.roleName === normalizedRoleName);
 
     if (!targetRole) {
       throw createAppError(
-        `You do not have the role '${roleName}'. Available roles: ${req.user.roles
+        `You do not have the role '${normalizedRoleName}'. Available roles: ${req.user.roles
           .filter((r) => validClientRoles.includes(r.roleName))
           .map((r) => r.roleName)
           .join(", ")}`,
@@ -742,15 +777,15 @@ const switchRole = asyncHandler(async (req, res, next) => {
       );
     }
 
-    if (req.user.role === roleName) {
-      throw createAppError(`'${roleName}' is already your active role`, 400);
+    if (req.user.role === normalizedRoleName) {
+      throw createAppError(`'${normalizedRoleName}' is already your active role`, 400);
     }
 
-    const newAccessToken = Token.generateAccessToken(req.user.userId, roleName);
+    const newAccessToken = Token.generateAccessToken(req.user.userId, normalizedRoleName);
 
     const newRefreshToken = Token.generateRefreshToken(
       req.user.userId,
-      roleName
+      normalizedRoleName
     );
 
     const [updatedCount] = await Token.update(
@@ -778,7 +813,7 @@ const switchRole = asyncHandler(async (req, res, next) => {
     const data = {
       userId: req.user.userId,
       previousRole: req.user.role,
-      activeRole: roleName,
+      activeRole: normalizedRoleName,
       accessToken: newAccessToken,
       refreshToken: newRefreshToken,
     };
@@ -818,6 +853,124 @@ const switchRole = asyncHandler(async (req, res, next) => {
     return next(error);
   }
 });
+
+const getClientUsers = asyncHandler(async (req, res, next) => {
+  const requestStartTime = Date.now();
+  const { page = 1, limit = 50, roleName, isActive } = req.query;
+
+  const requestBodyLog = {
+    page,
+    limit,
+    filters: { roleName, isActive },
+  };
+
+  try {
+    const whereClause = { userType: "client" };
+
+    if (isActive !== undefined) {
+      whereClause.isActive = isActive === "true";
+    } else {
+      whereClause.isActive = true;
+    }
+
+    const roleWhere = { roleType: "client", isActive: true };
+    if (roleName) {
+      roleWhere.roleName = roleName;
+    }
+
+    const pageNumber = parseInt(page);
+    const pageSize = parseInt(limit);
+    const offset = (pageNumber - 1) * pageSize;
+
+    const { count, rows: users } = await User.findAndCountAll({
+      where: whereClause,
+      attributes: [
+        "userId",
+        "firstName",
+        "lastName",
+        "email",
+        "mobileNumber",
+        "isActive",
+        "createdAt",
+        "reraNumber",
+      ],
+      include: [
+        {
+          model: Role,
+          as: "roles",
+          through: { attributes: [] },
+          attributes: ["roleId", "roleName", "roleType"],
+          where: roleWhere,
+        },
+      ],
+      order: [["createdAt", "DESC"]],
+      limit: pageSize,
+      offset: offset,
+      distinct: true,
+    });
+
+    const totalPages = Math.ceil(count / pageSize);
+    const pagination = {
+      currentPage: pageNumber,
+      totalPages,
+      totalUsers: count,
+      hasNextPage: pageNumber < totalPages,
+      hasPrevPage: pageNumber > 1,
+      usersPerPage: pageSize,
+    };
+
+    const formattedUsers = users.map((user) => ({
+      userId: user.userId,
+      name: `${user.firstName || ""} ${user.lastName || ""}`.trim(),
+      email: user.email,
+      mobileNumber: user.mobileNumber,
+      role: user.roles[0]?.roleName || null,
+      isActive: user.isActive,
+      createdAt: user.createdAt,
+      reraNumber: user.reraNumber,
+    }));
+
+    await logRequest(
+      req,
+      {
+        userId: req.user?.userId || null,
+        status: 200,
+        body: {
+          success: true,
+          message: "Client users fetched successfully",
+          count: formattedUsers.length,
+        },
+        requestBodyLog,
+      },
+      requestStartTime
+    );
+
+    return sendEncodedResponse(
+      res,
+      200,
+      true,
+      "Client users fetched successfully",
+      formattedUsers,
+      pagination
+    );
+  } catch (error) {
+    await logRequest(
+      req,
+      {
+        userId: req.user?.userId || null,
+        status: error.statusCode || 500,
+        body: { success: false, message: error.message },
+        requestBodyLog,
+        error: error.message,
+        stackTrace: error.stack,
+      },
+      requestStartTime
+    );
+
+    return next(error);
+  }
+});
+
 
 const verifyOtpHandler = asyncHandler(async (req, res, next) => {
   const requestStartTime = Date.now();
@@ -884,4 +1037,5 @@ module.exports = {
   logout,
   refreshAccessToken,
   switchRole,
+  getClientUsers,
 };

@@ -558,18 +558,31 @@ const getAllUsers = asyncHandler(async (req, res, next) => {
     }
 
     const roleWhere = {};
-    if (roleName) {
+    const currentUserRole = req.user?.role || "";
+
+    console.log(`[getAllUsers] Fetching users. Filter: roleName=${roleName}, isActive=${isActive}, currentUserRole=${currentUserRole}`);
+
+    // If a specific role is requested, handle it
+    if (roleName && roleName !== "All") {
       roleWhere.roleName = roleName;
+    }
+
+    // Security Constraint: Non-admin users cannot see Admin/Super Admin roles
+    if (currentUserRole !== "Admin" && currentUserRole !== "Super Admin") {
+      const securityFilter = { [Op.notIn]: ["Admin", "Super Admin"] };
+      
+      if (roleWhere.roleName) {
+        roleWhere.roleName = {
+          [Op.and]: [roleWhere.roleName, securityFilter]
+        };
+      } else {
+        roleWhere.roleName = securityFilter;
+      }
     }
 
     const pageNumber = parseInt(page);
     const pageSize = parseInt(limit);
     const offset = (pageNumber - 1) * pageSize;
-
-    // If user is NOT Admin or Super Admin, hide Admin/Super Admin users
-    if (req.userRole !== "Admin" && req.userRole !== "Super Admin") {
-      roleWhere.roleName = { [Op.notIn]: ["Admin", "Super Admin"] };
-    }
 
     const { count, rows: users } = await User.findAndCountAll({
       where: whereClause,
