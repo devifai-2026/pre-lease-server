@@ -26,11 +26,17 @@ router.get(
   getPendingInquiries
 );
 
-// ✅ Get assigned inquiries (Sales Executive - Client Dealer)
+// ✅ Get assigned inquiries (any role that can be assigned an inquiry)
 router.get(
   "/sales/assigned-inquiries",
   authenticateUser,
-  checkRole(["Sales Executive - Client Dealer"]),
+  checkRole([
+    "Admin",
+    "Super Admin",
+    "Sales Manager",
+    "Sales Executive - Property Manager",
+    "Sales Executive - Client Dealer",
+  ]),
   getAssignedInquiries
 );
 

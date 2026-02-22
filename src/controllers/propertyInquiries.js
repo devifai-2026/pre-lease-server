@@ -122,11 +122,11 @@ const createPropertyInquiry = asyncHandler(async (req, res, next) => {
         );
         addedInquiries = inquiriesWithTimestamp;
 
-        // If this property already has a Client Dealer assigned to another inquiry,
-        // auto-assign the new inquiry to the same dealer
+        // If this CLIENT (inquirerId) already has a dealer assigned on any other
+        // inquiry (across any property), auto-assign this new inquiry to the same dealer
         const existingAssigned = await PropertyInquiry.findOne({
           where: {
-            propertyId,
+            inquirerId,                          // ← same CLIENT, not same property
             assignedTo: { [Op.not]: null },
             status: { [Op.notIn]: ["closed"] },
             id: { [Op.ne]: inquiryRecord.id },
@@ -137,21 +137,11 @@ const createPropertyInquiry = asyncHandler(async (req, res, next) => {
         });
 
         if (existingAssigned) {
-          const dealerActive = await User.findOne({
+          // Verify the previously assigned user is still active
+          const assigneeActive = await User.findOne({
             where: { userId: existingAssigned.assignedTo, isActive: true },
-            include: [
-              {
-                model: Role,
-                as: "roles",
-                where: {
-                  roleName: "Sales Executive - Client Dealer",
-                  isActive: true,
-                },
-                through: { attributes: [] },
-              },
-            ],
           });
-          if (dealerActive) {
+          if (assigneeActive) {
             await inquiryRecord.update(
               {
                 assignedTo: existingAssigned.assignedTo,
@@ -326,19 +316,50 @@ const assignInquiry = asyncHandler(async (req, res, next) => {
       throw createAppError("assignedTo is required", 400);
     }
 
+    // Assignable roles per assigner hierarchy:
+    //   Super Admin  → anyone (Admin, Super Admin, Sales Manager, any Sales Executive)
+    //   Admin        → Admin, Sales Manager, any Sales Executive
+    //   Sales Manager → Sales Executives only
+    const assignerRole = req.userRole;
+
+    let ASSIGNABLE_ROLES;
+    if (assignerRole === "Super Admin") {
+      ASSIGNABLE_ROLES = [
+        "Admin",
+        "Super Admin",
+        "Sales Manager",
+        "Sales Executive - Property Manager",
+        "Sales Executive - Client Dealer",
+      ];
+    } else if (assignerRole === "Admin") {
+      ASSIGNABLE_ROLES = [
+        "Admin",
+        "Sales Manager",
+        "Sales Executive - Property Manager",
+        "Sales Executive - Client Dealer",
+      ];
+    } else {
+      // Sales Manager
+      ASSIGNABLE_ROLES = [
+        "Sales Executive - Property Manager",
+        "Sales Executive - Client Dealer",
+      ];
+    }
+
     const assignee = await User.findOne({
       where: { userId: assignedTo, isActive: true },
       include: [
         {
           model: Role,
           as: "roles",
-          where: { roleName: "Sales Executive - Client Dealer" },
+          where: { roleName: { [Op.in]: ASSIGNABLE_ROLES }, isActive: true },
+          through: { attributes: [] },
         },
       ],
     });
     if (!assignee) {
       throw createAppError(
-        "Assigned user must be a Sales Executive - Client Dealer",
+        `Assigned user not found, inactive, or cannot be assigned by a ${assignerRole}. Allowed targets: ${ASSIGNABLE_ROLES.join(", ")}`,
         400
       );
     }
@@ -532,7 +553,13 @@ const autoAssignInquiry = asyncHandler(async (req, res, next) => {
       throw createAppError("Inquiry not found", 404);
     }
 
-    // Find all Client Dealers
+    // Find all users with roles eligible for auto-assignment
+    // (Sales Executive - Client Dealer and Sales Manager)
+    const AUTO_ASSIGN_ROLES = [
+      "Sales Executive - Client Dealer",
+      "Sales Manager",
+    ];
+
     const clientDealers = await User.findAll({
       where: { isActive: true },
       attributes: ["userId"],
@@ -542,7 +569,7 @@ const autoAssignInquiry = asyncHandler(async (req, res, next) => {
           as: "roles",
           through: { attributes: [] },
           where: {
-            roleName: "Sales Executive - Client Dealer",
+            roleName: { [Op.in]: AUTO_ASSIGN_ROLES },
             isActive: true,
           },
           attributes: [],
@@ -552,7 +579,7 @@ const autoAssignInquiry = asyncHandler(async (req, res, next) => {
     });
 
     if (clientDealers.length === 0) {
-      throw createAppError("No Active Client Dealers found to assign", 404);
+      throw createAppError("No active assignable users (Sales Manager / Client Dealer) found", 404);
     }
 
     const dealerIds = clientDealers.map((u) => u.userId);
@@ -800,6 +827,14 @@ const getAssignedInquiries = asyncHandler(async (req, res) => {
     inquiries
   );
 });
+// const purgeAllNotifications = asyncHandler(async (req, res) => {
+//   try {
+//     const deletedCount = await PropertyNotificationEvent.destroy({});
+//     console.log("deleted")
+//     return sendEncodedResponse(res, 200, true, "All notifications permanently removed", { deletedCount });
+//   }
+//   catch (error) { }
+// });
 
 module.exports = {
   createPropertyInquiry,
