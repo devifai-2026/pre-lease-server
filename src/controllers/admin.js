@@ -564,12 +564,13 @@ const deleteUser = asyncHandler(async (req, res, next) => {
 const getAllUsers = asyncHandler(async (req, res, next) => {
   const requestStartTime = Date.now();
 
-  const { page = 1, limit = 10, roleName, isActive } = req.query;
+  const { page = 1, limit = 10, roleName, isActive, search, q, query } = req.query;
+  const searchTerm = search || q || query;
 
   const requestBodyLog = {
     page,
     limit,
-    filters: { roleName, isActive },
+    filters: { roleName, isActive, searchTerm },
   };
 
   try {
@@ -580,6 +581,24 @@ const getAllUsers = asyncHandler(async (req, res, next) => {
     } else {
       // not to send the inactive users
       whereClause.isActive = true;
+    }
+
+    if (searchTerm) {
+      const tokens = searchTerm.trim().split(/\s+/).filter(Boolean);
+      if (tokens.length > 0) {
+        whereClause[Op.and] = tokens.map(token => ({
+          [Op.or]: [
+            { first_name: { [Op.iLike]: `%${token}%` } },
+            { last_name: { [Op.iLike]: `%${token}%` } },
+            { email: { [Op.iLike]: `%${token}%` } },
+            { mobile_number: { [Op.iLike]: `%${token}%` } },
+            sequelize.where(
+              sequelize.fn("concat", sequelize.col("first_name"), " ", sequelize.col("last_name")),
+              { [Op.iLike]: `%${token}%` }
+            ),
+          ]
+        }));
+      }
     }
 
     const roleWhere = {};
