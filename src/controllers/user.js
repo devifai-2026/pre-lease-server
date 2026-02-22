@@ -869,11 +869,12 @@ const getClientUsers = asyncHandler(async (req, res, next) => {
   try {
     const whereClause = { userType: "client" };
 
-    if (isActive !== undefined) {
-      whereClause.isActive = isActive === "true";
-    } else {
+    if (isActive === "true") {
       whereClause.isActive = true;
+    } else if (isActive === "false") {
+      whereClause.isActive = false;
     }
+    // If isActive is undefined or any other value (like "all"), don't filter by status
 
     const roleWhere = { roleType: "client", isActive: true };
     if (roleName) {

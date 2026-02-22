@@ -6,6 +6,7 @@ const {
   updateUser,
   deleteUser,
   getAllUsers,
+  getUserById,
   createSuperAdmin,
   reassignProperty,
   getAllSalesRelatedActiveUsers,
@@ -56,6 +57,12 @@ router.post(
  * @desc    Get all users (Accessible by all authenticated users)
  */
 router.get("/users", authenticateUser, getAllUsers);
+
+/**
+ * @route   GET /api/v1/admin/users/:userId
+ * @desc    Get single user by ID
+ */
+router.get("/users/:userId", authenticateUser, getUserById);
 
 /**
  * @route   PUT /api/v1/admin/users/:userId

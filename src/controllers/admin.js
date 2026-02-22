@@ -312,9 +312,12 @@ const updateUser = asyncHandler(async (req, res, next) => {
     }
 
     const currentRole = existingUser.roles[0];
-    if (currentRole.roleType === "client") {
+    const updateFields = Object.keys(req.body);
+    const isStatusToggle = updateFields.length === 1 && updateFields.includes("isActive");
+
+    if (currentRole.roleType === "client" && !isStatusToggle) {
       throw createAppError(
-        "Cannot update client users (Owner, Broker, Investor) via admin API",
+        "Cannot update client user details (Owner, Broker, Investor) via admin API. Only status toggle is allowed.",
         403
       );
     }
@@ -721,6 +724,64 @@ const getAllUsers = asyncHandler(async (req, res, next) => {
       requestStartTime
     );
 
+    return next(error);
+  }
+});
+
+const getUserById = asyncHandler(async (req, res, next) => {
+  const requestStartTime = Date.now();
+  const { userId } = req.params;
+
+  try {
+    const user = await User.findOne({
+      where: { userId, isActive: true },
+      attributes: [
+        "userId",
+        "firstName",
+        "lastName",
+        "email",
+        "mobileNumber",
+        "isActive",
+        "createdAt",
+        "reraNumber",
+      ],
+      include: [
+        {
+          model: Role,
+          as: "roles",
+          through: { attributes: [] },
+          attributes: ["roleId", "roleName", "roleType"],
+        },
+      ],
+    });
+
+    if (!user) {
+      throw createAppError("User not found", 404);
+    }
+
+    await logRequest(
+      req,
+      {
+        userId: req.user.userId,
+        status: 200,
+        body: { success: true, message: "User fetched successfully" },
+      },
+      requestStartTime
+    );
+
+    return sendEncodedResponse(res, 200, true, "User fetched successfully", user);
+  } catch (error) {
+    await logRequest(
+      req,
+      {
+        userId: req.user?.userId || null,
+        status: error.statusCode || 500,
+        body: { success: false, message: error.message },
+        error: error.message,
+        stackTrace: error.stack,
+      },
+      requestStartTime
+    );
     return next(error);
   }
 });
@@ -1690,6 +1751,9 @@ const adminGetAllProperties = asyncHandler(async (req, res, next) => {
         city,
         state,
         propertyType,
+        userId,
+        ownerId,
+        brokerId,
         sortBy = "createdAt",
         sortOrder = "DESC",
     } = req.query;
@@ -1697,7 +1761,7 @@ const adminGetAllProperties = asyncHandler(async (req, res, next) => {
     const requestBodyLog = {
         page,
         limit,
-        filters: { isVerified, city, state, propertyType },
+        filters: { isVerified, city, state, propertyType, userId, ownerId, brokerId },
     };
 
     try {
@@ -1706,6 +1770,13 @@ const adminGetAllProperties = asyncHandler(async (req, res, next) => {
         if (city) whereClause.city = { [Op.iLike]: `%${city}%` };
         if (state) whereClause.state = { [Op.iLike]: `%${state}%` };
         if (propertyType) whereClause.propertyType = propertyType;
+        
+        if (userId) {
+            whereClause[Op.or] = [{ ownerId: userId }, { brokerId: userId }];
+        } else {
+            if (ownerId) whereClause.ownerId = ownerId;
+            if (brokerId) whereClause.brokerId = brokerId;
+        }
 
         const pageNumber = parseInt(page);
         const pageSize = parseInt(limit);
@@ -2134,6 +2205,7 @@ module.exports = {
     updateUser,
     deleteUser,
     getAllUsers,
+    getUserById,
     createSuperAdmin,
     reassignProperty,
     getAllSalesRelatedActiveUsers,
