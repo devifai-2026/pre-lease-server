@@ -31,10 +31,31 @@ const PropertyManagerNotes = sequelize.define(
       allowNull: false,
       defaultValue: 0,
     },
+
+    status: {
+      type: DataTypes.ENUM("pending", "approved"),
+      allowNull: false,
+      defaultValue: "approved",
+    },
+
     isActive: {
       type: DataTypes.BOOLEAN,
       allowNull: false,
       defaultValue: true,
+    },
+
+    // Nullable FK — who last edited this record
+    editedBy: {
+      type: DataTypes.UUID,
+      allowNull: true,
+      defaultValue: null,
+    },
+
+    // Nullable FK — who approved this record
+    approvedBy: {
+      type: DataTypes.UUID,
+      allowNull: true,
+      defaultValue: null,
     },
   },
   {
