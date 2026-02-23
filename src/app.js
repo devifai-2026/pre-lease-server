@@ -26,7 +26,7 @@ if (NODE_ENV === "development") {
 } else {
   app.use(morgan("combined"));
 }
-
+console.log(process.env.DATABASE_URL, "DATABASE_URL");
 app.get("/health", (req, res) => {
   res.status(200).json({
     status: "ok",

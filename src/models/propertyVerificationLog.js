@@ -63,4 +63,3 @@ const PropertyVerificationLog = sequelize.define(
 );
 
 module.exports = PropertyVerificationLog;
-

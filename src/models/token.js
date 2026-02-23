@@ -55,6 +55,10 @@ const Token = sequelize.define(
       type: DataTypes.STRING(100),
       allowNull: true,
     },
+    requestFrom: {
+      type: DataTypes.STRING(100),
+      allowNull: true,
+    },
   },
   {
     tableName: "tokens",
