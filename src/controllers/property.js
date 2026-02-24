@@ -725,39 +725,39 @@ const updateProperty = asyncHandler(async (req, res, next) => {
     const updateData = {};
     for (const field of ALLOWED_UPDATE_FIELDS) {
       if (req.body[field] !== undefined) {
-        updateData[field] = req.body[field] === "" ? null : req.body[field];
+        updateData[field] = req.body[field];
       }
     }
 
     // Map payload fields to model fields if they differ
     if (req.body.carpetAreaSqft !== undefined) {
-      updateData.carpetArea = req.body.carpetAreaSqft || null;
+      updateData.carpetArea = req.body.carpetAreaSqft;
       delete updateData.carpetAreaSqft;
     }
     if (req.body.parkingSlots !== undefined) {
-      updateData.parkingFourWheeler = req.body.parkingSlots || 0;
+      updateData.parkingFourWheeler = req.body.parkingSlots;
       delete updateData.parkingSlots;
     }
     if (req.body.parkingRatio !== undefined) {
-      updateData.parkingTwoWheeler = req.body.parkingRatio || 0;
+      updateData.parkingTwoWheeler = req.body.parkingRatio;
       delete updateData.parkingRatio;
     }
     if (req.body.lastRefurbished !== undefined) {
-      updateData.lastRefurbishedYear = req.body.lastRefurbished || null;
+      updateData.lastRefurbishedYear = req.body.lastRefurbished;
       delete updateData.lastRefurbished;
     }
     if (req.body.numberOfLifts !== undefined) {
-      updateData.numberOfLifts = req.body.numberOfLifts || 0;
+      updateData.numberOfLifts = req.body.numberOfLifts;
     }
     if (req.body.powerBackupKva !== undefined) {
-      updateData.powerBackup = req.body.powerBackupKva || null;
+      updateData.powerBackup = req.body.powerBackupKva;
       delete updateData.powerBackupKva;
     }
     if (req.body.description !== undefined) {
-      updateData.description = req.body.description || null;
+      updateData.description = req.body.description;
     }
     if (req.body.otherAmenities !== undefined) {
-      updateData.additionalDescription = req.body.otherAmenities || null;
+      updateData.additionalDescription = req.body.otherAmenities;
       delete updateData.otherAmenities;
     }
 
