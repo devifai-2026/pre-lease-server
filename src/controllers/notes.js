@@ -4,7 +4,9 @@ const {
   User,
   PropertyMedia,
   PropertyNotificationEvent,
+  SalesRelationship,
 } = require("../models");
+const { Op } = require("sequelize");
 const createAppError = require("../utils/appError");
 const asyncHandler = require("../utils/asyncHandler");
 const { sendEncodedResponse } = require("../utils/responseEncoder");
@@ -274,11 +276,26 @@ const getAllPropertiesWithNotes = asyncHandler(async (req, res, next) => {
   };
 
   try {
-    // Build where clause for PropertyManagerNotes
-    const noteWhereClause = {
-      salesExecutiveId, // ✅ Filter by logged-in sales executive
-      isActive: true,
-    };
+    const isAdminOrSuperAdmin = ["Admin", "Super Admin"].includes(req.user.role);
+    const isSalesManager = req.user.role === "Sales Manager";
+
+    // Build where clauses
+    const noteWhereClause = { isActive: true };
+    const propertyWhereClause = { isActive: true };
+
+    if (isSalesManager) {
+      const relationships = await SalesRelationship.findAll({
+        where: { salesManagerId: req.user.userId, isActive: true },
+        attributes: ["salesExecutiveId"],
+      });
+      const teamMemberIds = relationships.map((r) => r.salesExecutiveId);
+      teamMemberIds.push(req.user.userId);
+      propertyWhereClause.salesId = { [Op.in]: teamMemberIds };
+    } else if (!isAdminOrSuperAdmin) {
+      // For Sales Executives, show their own notes and notes on their assigned properties
+      propertyWhereClause.salesId = salesExecutiveId;
+      noteWhereClause.salesExecutiveId = salesExecutiveId;
+    }
 
     const pageNumber = parseInt(page);
     const pageSize = parseInt(limit);
@@ -293,9 +310,7 @@ const getAllPropertiesWithNotes = asyncHandler(async (req, res, next) => {
             model: Property,
             as: "property",
             required: true, // INNER JOIN - only notes with valid properties
-            where: {
-              isActive: true,
-            },
+            where: propertyWhereClause,
             attributes: [
               "propertyId",
               "propertyType",

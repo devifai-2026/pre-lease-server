@@ -1357,6 +1357,7 @@ const getAllProperties = asyncHandler(async (req, res, next) => {
     bedrooms,
     sortBy = "createdAt",
     sortOrder = "DESC",
+    isVerified,
   } = req.query;
 
   const requestBodyLog = {
@@ -1450,6 +1451,16 @@ const getAllProperties = asyncHandler(async (req, res, next) => {
         whereClause.microMarket = { [Op.in]: microMarketsArray };
       } else {
         whereClause.microMarket = { [Op.iLike]: `%${microMarket}%` };
+      }
+    }
+
+    if (isVerified) {
+      if (isVerified === "pending") {
+        whereClause.isVerified = {
+          [Op.or]: [{ [Op.is]: null }, { [Op.notIn]: ["completed", "partial"] }],
+        };
+      } else {
+        whereClause.isVerified = isVerified;
       }
     }
 
@@ -1696,6 +1707,7 @@ const getAssignedProperties = asyncHandler(async (req, res, next) => {
     microMarket,
     sortBy = "createdAt",
     sortOrder = "DESC",
+    isVerified,
   } = req.query;
 
   const requestBodyLog = {
@@ -1802,6 +1814,16 @@ const getAssignedProperties = asyncHandler(async (req, res, next) => {
         whereClause.microMarket = { [Op.in]: microMarketsArray };
       } else {
         whereClause.microMarket = { [Op.iLike]: `%${microMarket}%` };
+      }
+    }
+
+    if (isVerified) {
+      if (isVerified === "pending") {
+        whereClause.isVerified = {
+          [Op.or]: [{ [Op.is]: null }, { [Op.notIn]: ["completed", "partial"] }],
+        };
+      } else {
+        whereClause.isVerified = isVerified;
       }
     }
 
