@@ -725,39 +725,39 @@ const updateProperty = asyncHandler(async (req, res, next) => {
     const updateData = {};
     for (const field of ALLOWED_UPDATE_FIELDS) {
       if (req.body[field] !== undefined) {
-        updateData[field] = req.body[field];
+        updateData[field] = req.body[field] === "" ? null : req.body[field];
       }
     }
 
     // Map payload fields to model fields if they differ
     if (req.body.carpetAreaSqft !== undefined) {
-      updateData.carpetArea = req.body.carpetAreaSqft;
+      updateData.carpetArea = req.body.carpetAreaSqft || null;
       delete updateData.carpetAreaSqft;
     }
     if (req.body.parkingSlots !== undefined) {
-      updateData.parkingFourWheeler = req.body.parkingSlots;
+      updateData.parkingFourWheeler = req.body.parkingSlots || 0;
       delete updateData.parkingSlots;
     }
     if (req.body.parkingRatio !== undefined) {
-      updateData.parkingTwoWheeler = req.body.parkingRatio;
+      updateData.parkingTwoWheeler = req.body.parkingRatio || 0;
       delete updateData.parkingRatio;
     }
     if (req.body.lastRefurbished !== undefined) {
-      updateData.lastRefurbishedYear = req.body.lastRefurbished;
+      updateData.lastRefurbishedYear = req.body.lastRefurbished || null;
       delete updateData.lastRefurbished;
     }
     if (req.body.numberOfLifts !== undefined) {
-      updateData.numberOfLifts = req.body.numberOfLifts;
+      updateData.numberOfLifts = req.body.numberOfLifts || 0;
     }
     if (req.body.powerBackupKva !== undefined) {
-      updateData.powerBackup = req.body.powerBackupKva;
+      updateData.powerBackup = req.body.powerBackupKva || null;
       delete updateData.powerBackupKva;
     }
     if (req.body.description !== undefined) {
-      updateData.description = req.body.description;
+      updateData.description = req.body.description || null;
     }
     if (req.body.otherAmenities !== undefined) {
-      updateData.additionalDescription = req.body.otherAmenities;
+      updateData.additionalDescription = req.body.otherAmenities || null;
       delete updateData.otherAmenities;
     }
 
