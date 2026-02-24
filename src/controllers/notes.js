@@ -4,7 +4,9 @@ const {
   User,
   PropertyMedia,
   PropertyNotificationEvent,
+  SalesRelationship,
 } = require("../models");
+const { Op } = require("sequelize");
 const createAppError = require("../utils/appError");
 const asyncHandler = require("../utils/asyncHandler");
 const { sendEncodedResponse } = require("../utils/responseEncoder");
@@ -274,11 +276,27 @@ const getAllPropertiesWithNotes = asyncHandler(async (req, res, next) => {
   };
 
   try {
-    // Build where clause for PropertyManagerNotes
-    const noteWhereClause = {
-      salesExecutiveId, // ✅ Filter by logged-in sales executive
-      isActive: true,
-    };
+    const userRole = req.userRole || req.user.role;
+
+    // Build where clause for PropertyManagerNotes based on role
+    const noteWhereClause = { isActive: true };
+
+    if (["Admin", "Super Admin"].includes(userRole)) {
+      // See all notes — no salesExecutiveId filter
+    } else if (userRole === "Sales Manager") {
+      // See notes from all team members
+      const relationships = await SalesRelationship.findAll({
+        where: { salesManagerId: salesExecutiveId, isActive: true },
+        attributes: ["salesExecutiveId"],
+        raw: true,
+      });
+      const teamIds = relationships.map((r) => r.salesExecutiveId);
+      teamIds.push(salesExecutiveId); // include manager's own notes
+      noteWhereClause.salesExecutiveId = { [Op.in]: teamIds };
+    } else {
+      // Sales Executive (Property Manager or Client Dealer) — only their own
+      noteWhereClause.salesExecutiveId = salesExecutiveId;
+    }
 
     const pageNumber = parseInt(page);
     const pageSize = parseInt(limit);
@@ -426,17 +444,33 @@ const getPropertyWithNotes = asyncHandler(async (req, res, next) => {
   };
 
   try {
-    // ✅ Relaxed permission: Admin and Sales Manager can view any property notes
-    const isAdminOrManager = ["Admin", "Super Admin", "Sales Manager"].includes(
-      req.user.role
-    );
+    const userRole = req.userRole || req.user.role;
+    const isAdminOrManager = ["Admin", "Super Admin", "Sales Manager"].includes(userRole);
 
+    // Property access: sales executives can only see notes for their assigned property
     const where = { propertyId, isActive: true };
     if (!isAdminOrManager) {
-      where.salesId = salesExecutiveId; // Sales Executives only see notes for assigned properties
+      where.salesId = salesExecutiveId;
     }
 
-    // ✅ OPTIMIZED: Single query with LEFT JOIN to property_manager_notes
+    // Build notes filter based on role
+    const notesWhere = { isActive: true };
+    if (["Admin", "Super Admin"].includes(userRole)) {
+      // No filter — see all executives' notes for this property
+    } else if (userRole === "Sales Manager") {
+      const relationships = await SalesRelationship.findAll({
+        where: { salesManagerId: salesExecutiveId, isActive: true },
+        attributes: ["salesExecutiveId"],
+        raw: true,
+      });
+      const teamIds = relationships.map((r) => r.salesExecutiveId);
+      teamIds.push(salesExecutiveId);
+      notesWhere.salesExecutiveId = { [Op.in]: teamIds };
+    } else {
+      notesWhere.salesExecutiveId = salesExecutiveId;
+    }
+
+    // Single query with LEFT JOIN to property_manager_notes
     const property = await Property.findOne({
       where,
       attributes: [
@@ -479,14 +513,10 @@ const getPropertyWithNotes = asyncHandler(async (req, res, next) => {
           attributes: ["userId", "firstName", "lastName", "email"],
           required: false,
         },
-        // ✅ NEW: Include PropertyManagerNotes in same query
         {
           model: PropertyManagerNotes,
-          as: "managerNotes", // Use the alias from your index.js associations
-          where: {
-            salesExecutiveId, // Filter notes for this sales exec
-            isActive: true,
-          },
+          as: "managerNotes",
+          where: notesWhere,
           required: false, // LEFT JOIN - property can exist without notes
           include: [
             {
@@ -519,21 +549,21 @@ const getPropertyWithNotes = asyncHandler(async (req, res, next) => {
       propertyData.media = await attachSignedUrls(propertyData.media);
     }
 
-    // ✅ Extract and format notes
-    let formattedNotes = null;
+    // Extract and format notes — multiple records possible for Admin/Manager view
+    let formattedNotes = [];
     let totalNotes = 0;
 
     if (propertyData.managerNotes && propertyData.managerNotes.length > 0) {
-      // Since composite PK (propertyId, salesExecutiveId), there should be only 1 record
-      const noteRecord = propertyData.managerNotes[0];
-
-      // Sort notes by latest first
-      noteRecord.notes = noteRecord.notes.sort(
-        (a, b) => new Date(b.createdAt) - new Date(a.createdAt)
+      formattedNotes = propertyData.managerNotes.map((record) => {
+        record.notes = (record.notes || []).sort(
+          (a, b) => new Date(b.createdAt) - new Date(a.createdAt)
+        );
+        return record;
+      });
+      totalNotes = formattedNotes.reduce(
+        (sum, r) => sum + (r.totalNotesCount || 0),
+        0
       );
-
-      formattedNotes = noteRecord;
-      totalNotes = noteRecord.totalNotesCount;
     }
 
     // Remove managerNotes from property object to avoid duplication in response

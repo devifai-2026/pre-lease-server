@@ -837,15 +837,35 @@ const getPendingInquiries = asyncHandler(async (req, res) => {
 // ============================================
 
 const getAssignedInquiries = asyncHandler(async (req, res) => {
-  const salesExecId = req.user.userId;
-  const { status } = req.query;
+  const userId = req.user.userId;
+  const userRole = req.userRole || req.user.role;
+  const { status, page = 1, limit = 10 } = req.query;
 
-  const whereClause = {
-    assignedTo: salesExecId,
-    ...(status && { status }),
-  };
+  const pageNumber = parseInt(page);
+  const pageSize = parseInt(limit);
+  const offset = (pageNumber - 1) * pageSize;
 
-  const inquiries = await PropertyInquiry.findAll({
+  const whereClause = {};
+  if (status) whereClause.status = status;
+
+  if (["Admin", "Super Admin"].includes(userRole)) {
+    // Admin/Super Admin see all inquiries (no assignedTo filter)
+  } else if (userRole === "Sales Manager") {
+    // Sales Manager sees inquiries assigned to their entire team
+    const relationships = await SalesRelationship.findAll({
+      where: { salesManagerId: userId, isActive: true },
+      attributes: ["salesExecutiveId"],
+      raw: true,
+    });
+    const teamIds = relationships.map((r) => r.salesExecutiveId);
+    teamIds.push(userId); // include manager's own assignments
+    whereClause.assignedTo = { [Op.in]: teamIds };
+  } else {
+    // Sales Executive (Property Manager or Client Dealer) — only their own
+    whereClause.assignedTo = userId;
+  }
+
+  const { count, rows: inquiries } = await PropertyInquiry.findAndCountAll({
     where: whereClause,
     include: [
       { model: Property, as: "property" },
@@ -855,6 +875,9 @@ const getAssignedInquiries = asyncHandler(async (req, res) => {
       ["priority", "DESC"],
       ["assigned_at", "ASC"],
     ],
+    limit: pageSize,
+    offset,
+    distinct: true,
   });
 
   return sendEncodedResponse(
@@ -862,7 +885,17 @@ const getAssignedInquiries = asyncHandler(async (req, res) => {
     200,
     true,
     "Assigned inquiries fetched",
-    inquiries
+    inquiries,
+    {
+      pagination: {
+        currentPage: pageNumber,
+        pageSize,
+        totalItems: count,
+        totalPages: Math.ceil(count / pageSize),
+        hasNextPage: pageNumber < Math.ceil(count / pageSize),
+        hasPrevPage: pageNumber > 1,
+      },
+    }
   );
 });
 // const purgeAllNotifications = asyncHandler(async (req, res) => {
