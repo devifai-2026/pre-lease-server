@@ -12,6 +12,7 @@ const {
   Caretaker,
   PropertyCertification,
   PropertyConnectivity,
+  PropertyInquiry,
 } = require("../models");
 const {
   validateRequiredFields,
@@ -1073,6 +1074,15 @@ const reassignProperty = asyncHandler(async (req, res, next) => {
       });
       if (smRelationship) salesManagerId = smRelationship.salesManagerId;
 
+      // Fetch sales manager of the old assignee (only relevant on reassignment)
+      let oldSalesManagerId = null;
+      if (isReassign && oldSalesId && oldSalesId !== userId) {
+        const oldSmRelationship = await SalesRelationship.findOne({
+          where: { salesExecutiveId: oldSalesId, isActive: true },
+        });
+        if (oldSmRelationship) oldSalesManagerId = oldSmRelationship.salesManagerId;
+      }
+
       const notificationRecords = [];
 
       // Notify new assignee
@@ -1110,7 +1120,7 @@ const reassignProperty = asyncHandler(async (req, res, next) => {
         });
       }
 
-      // Notify sales manager (skip if already notified as admin or is the assigner)
+      // Notify sales manager of new assignee (skip if already notified as admin or is the assigner)
       if (salesManagerId && salesManagerId !== req.user.userId && !adminIds.includes(salesManagerId)) {
         const smMessage = isReassign
           ? `Property in ${city} has been reassigned from ${oldAssigneeName || "unassigned"} to ${newAssigneeName} in your team by ${assignerName}.`
@@ -1120,6 +1130,23 @@ const reassignProperty = asyncHandler(async (req, res, next) => {
           propertyId, city, state: result.state, propertyType: result.propertyType,
           assignedTo: userId, assignedToName: newAssigneeName,
           assignedBy: req.user.userId, assignedByName: assignerName, timestamp,
+        });
+      }
+
+      // Notify old sales manager on reassignment (if different from new manager, assigner, and not an admin)
+      if (
+        isReassign &&
+        oldSalesManagerId &&
+        oldSalesManagerId !== req.user.userId &&
+        !adminIds.includes(oldSalesManagerId) &&
+        oldSalesManagerId !== salesManagerId
+      ) {
+        const oldSmMessage = `Property in ${city} has been reassigned from ${oldAssigneeName} to ${newAssigneeName} by ${assignerName}.`;
+        notificationRecords.push({ propertyId, userId: oldSalesManagerId, notificationText: oldSmMessage });
+        io.to(`user:${oldSalesManagerId}`).emit("property:unassigned", {
+          propertyId, city, state: result.state, propertyType: result.propertyType,
+          reassignedBy: req.user.userId, reassignedByName: assignerName,
+          reassignedTo: userId, reassignedToName: newAssigneeName, timestamp,
         });
       }
 
@@ -1714,6 +1741,9 @@ const adminGetAllProperties = asyncHandler(async (req, res, next) => {
     city,
     state,
     propertyType,
+    salesExecutiveId,
+    salesManagerId,
+    clientDealerId,
     sortBy = "createdAt",
     sortOrder = "DESC",
   } = req.query;
@@ -1721,7 +1751,7 @@ const adminGetAllProperties = asyncHandler(async (req, res, next) => {
   const requestBodyLog = {
     page,
     limit,
-    filters: { isVerified, city, state, propertyType },
+    filters: { isVerified, city, state, propertyType, salesExecutiveId, salesManagerId, clientDealerId },
   };
 
   try {
@@ -1730,6 +1760,41 @@ const adminGetAllProperties = asyncHandler(async (req, res, next) => {
     if (city) whereClause.city = { [Op.iLike]: `%${city}%` };
     if (state) whereClause.state = { [Op.iLike]: `%${state}%` };
     if (propertyType) whereClause.propertyType = propertyType;
+
+    // Filter by a specific Sales Executive - Property Manager
+    if (salesExecutiveId) {
+      whereClause.salesId = salesExecutiveId;
+    }
+
+    // Filter by Sales Manager — expand to all executives in their team
+    if (salesManagerId) {
+      const relationships = await SalesRelationship.findAll({
+        where: { salesManagerId, isActive: true },
+        attributes: ["salesExecutiveId"],
+        raw: true,
+      });
+      const executiveIds = relationships.map((r) => r.salesExecutiveId);
+      // Include the manager's own salesId as well
+      executiveIds.push(salesManagerId);
+      whereClause.salesId = { [Op.in]: executiveIds };
+    }
+
+    // Filter by Client Dealer — find properties that have inquiries assigned to them
+    if (clientDealerId) {
+      const inquiries = await PropertyInquiry.findAll({
+        where: { assignedTo: clientDealerId },
+        attributes: ["propertyId"],
+        raw: true,
+      });
+      const propertyIds = [...new Set(inquiries.map((i) => i.propertyId))];
+      if (propertyIds.length === 0) {
+        // No properties linked to this dealer — return empty immediately
+        return sendEncodedResponse(res, 200, true, "Properties fetched successfully", [], {
+          pagination: { currentPage: 1, pageSize: parseInt(limit), totalItems: 0, totalPages: 0, hasNextPage: false, hasPrevPage: false },
+        });
+      }
+      whereClause.propertyId = { [Op.in]: propertyIds };
+    }
 
     const pageNumber = parseInt(page);
     const pageSize = parseInt(limit);

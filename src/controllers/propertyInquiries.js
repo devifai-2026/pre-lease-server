@@ -224,6 +224,24 @@ const createPropertyInquiry = asyncHandler(async (req, res, next) => {
             timestamp,
           });
         }
+
+        // Notify existing assigned dealer when client adds more questions to an open inquiry
+        if (!isNew && inquiryRecord.assignedTo) {
+          const dealerMessage = `${inquirerName} has added new questions to an existing inquiry for property in ${property.city}.`;
+          const dealerNotif = await PropertyNotificationEvent.create({
+            propertyId: property.propertyId,
+            userId: inquiryRecord.assignedTo,
+            notificationText: dealerMessage,
+          });
+
+          io.to(`user:${inquiryRecord.assignedTo}`).emit("inquiry:updated", {
+            id: dealerNotif.id,
+            inquiryId: inquiryRecord.id,
+            propertyId: property.propertyId,
+            message: dealerMessage,
+            timestamp,
+          });
+        }
       } catch (notifErr) {
         console.error(
           "Notification failed in createPropertyInquiry:",
@@ -412,17 +430,20 @@ const assignInquiry = asyncHandler(async (req, res, next) => {
       });
       const adminIds = adminUsers.map((a) => a.userId);
 
-      // Fetch sales manager of assigned dealer (via property's sales executive)
+      // Fetch sales manager of the new assignee (client dealer)
       let salesManagerId = null;
-      const propForSM = await Property.findOne({
-        where: { propertyId: inquiry.propertyId },
-        attributes: ["salesId"],
+      const smRel = await SalesRelationship.findOne({
+        where: { salesExecutiveId: assignedTo, isActive: true },
       });
-      if (propForSM?.salesId) {
-        const smRel = await SalesRelationship.findOne({
-          where: { salesExecutiveId: propForSM.salesId, isActive: true },
+      if (smRel) salesManagerId = smRel.salesManagerId;
+
+      // Fetch sales manager of the old assignee (for reassignment notifications)
+      let oldSalesManagerId = null;
+      if (isReassign && oldAssignedTo) {
+        const oldSmRel = await SalesRelationship.findOne({
+          where: { salesExecutiveId: oldAssignedTo, isActive: true },
         });
-        if (smRel) salesManagerId = smRel.salesManagerId;
+        if (oldSmRel) oldSalesManagerId = oldSmRel.salesManagerId;
       }
 
       // Notify new assignee
@@ -460,7 +481,7 @@ const assignInquiry = asyncHandler(async (req, res, next) => {
         });
       }
 
-      // Notify sales manager
+      // Notify sales manager of new assignee
       if (salesManagerId && salesManagerId !== adminId && !adminIds.includes(salesManagerId)) {
         const smMessage = isReassign
           ? `Inquiry for property in ${city} has been reassigned from ${oldAssigneeName || "unassigned"} to ${newAssigneeName} by ${assignerName}.`
@@ -470,6 +491,23 @@ const assignInquiry = asyncHandler(async (req, res, next) => {
           inquiryId: inquiry.id, propertyId: inquiry.propertyId,
           message: smMessage, assignedTo, assignedToName: newAssigneeName,
           assignedBy: adminId, assignedByName: assignerName, timestamp,
+        });
+      }
+
+      // Notify old sales manager on reassignment (if different from new manager, assigner, and not an admin)
+      if (
+        isReassign &&
+        oldSalesManagerId &&
+        oldSalesManagerId !== adminId &&
+        !adminIds.includes(oldSalesManagerId) &&
+        oldSalesManagerId !== salesManagerId
+      ) {
+        const oldSmMessage = `Inquiry for property in ${city} has been reassigned from ${oldAssigneeName || "the previous dealer"} to ${newAssigneeName} by ${assignerName}.`;
+        notificationRecords.push({ propertyId: inquiry.propertyId, userId: oldSalesManagerId, notificationText: oldSmMessage });
+        io.to(`user:${oldSalesManagerId}`).emit("inquiry:unassigned", {
+          inquiryId: inquiry.id, propertyId: inquiry.propertyId,
+          message: oldSmMessage, reassignedBy: adminId, reassignedByName: assignerName,
+          reassignedTo: assignedTo, reassignedToName: newAssigneeName, timestamp,
         });
       }
 

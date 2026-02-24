@@ -22,6 +22,11 @@ const initSocket = (httpServer) => {
       console.log(`Socket connected: ${socket.id} (user: ${userId})`);
     }
 
+    // Application-level Ping/Pong for keep-alive and latency checks
+    socket.on("ping", () => {
+      socket.emit("pong", { timestamp: new Date().toISOString() });
+    });
+
     socket.on("disconnect", () => {
       console.log(`Socket disconnected: ${socket.id}`);
     });
