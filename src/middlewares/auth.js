@@ -287,6 +287,32 @@ const checkRole = (allowedRoles) => {
   };
 };
 
+/**
+ * Middleware to check if user's role is NOT in the excluded list
+ * @param {Array<string>} excludedRoles - Array of role names to exclude
+ */
+const checkExcludeRole = (excludedRoles) => {
+  return (req, res, next) => {
+    if (!req.user || !req.user.roles) {
+      return next(createAppError("User not authenticated", 401));
+    }
+    const userRoleNames = req.user.roles.map((role) => role.roleName);
+    const isExcluded = userRoleNames.some((role) =>
+      excludedRoles.includes(role)
+    );
+    if (isExcluded) {
+      return next(
+        createAppError(
+          `Access denied for your role.`,
+          403
+        )
+      );
+    }
+    req.userRole = req.user.roles[0].roleName;
+    next();
+  };
+};
+
 // ============================================
 // PREDEFINED ROLE CHECKS (for convenience)
 // ============================================
@@ -301,6 +327,7 @@ const checkSalesPerson = checkRole([
   "Sales Executive - Property Manager",
   "Sales Executive - Client Dealer",
 ]);
+const checkOperationalStaff = checkExcludeRole(["Owner", "Broker", "Investor"]);
 
 module.exports = {
   authenticateUser,
@@ -314,4 +341,6 @@ module.exports = {
   checkInvestor,
   checkAdminOrSuperAdmin,
   checkSalesPerson,
+  checkExcludeRole,
+  checkOperationalStaff,
 };
