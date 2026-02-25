@@ -9,6 +9,7 @@ const {
   getAllProperties,
   getAssignedProperties,
   getPropertyById,
+  getHotProperties,
 } = require("../controllers/property");
 const {
   createPropertyManagerNotes,
@@ -76,6 +77,13 @@ router.get(
   authenticateUser,
   checkSalesPerson, // Only sales roles
   getAssignedProperties
+);
+
+// ✅ Get last 20 updated properties
+router.get(
+  "/get-hot-properties",
+  authenticateUser,
+  getHotProperties
 );
 
 // ✅ Get single property details

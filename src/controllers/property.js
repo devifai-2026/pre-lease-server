@@ -2210,6 +2210,123 @@ const getPropertyById = asyncHandler(async (req, res, next) => {
   }
 });
 
+const getHotProperties = asyncHandler(async (req, res, next) => {
+  const requestStartTime = Date.now();
+  const { isVerified, page = 1, limit = 10 } = req.query;
+
+  try {
+    const whereClause = { isActive: true };
+
+    if (isVerified) {
+      if (isVerified === "pending") {
+        whereClause.isVerified = {
+          [Op.or]: [{ [Op.is]: null }, { [Op.notIn]: ["completed", "partial"] }],
+        };
+      } else {
+        whereClause.isVerified = isVerified;
+      }
+    }
+
+    const pageNumber = parseInt(page);
+    const pageSize = parseInt(limit);
+    const offset = (pageNumber - 1) * pageSize;
+
+    const { count, rows: properties } = await Property.findAndCountAll({
+      where: whereClause,
+      limit: pageSize,
+      offset: offset,
+      order: [["updatedAt", "DESC"]],
+      include: [
+        {
+          model: PropertyMedia,
+          as: "media",
+          attributes: ["mediaId", "mediaType", "fileUrl"],
+          required: false,
+          separate: true,
+        },
+        {
+          model: User,
+          as: "salesAgent",
+          attributes: ["userId", "firstName", "lastName", "email", "mobileNumber"],
+          required: false,
+        },
+        {
+          model: PropertyVerificationLog,
+          as: "verificationLogs",
+          attributes: ["id", "userId", "status", "roleAtVerification", "createdAt"],
+          where: { status: "verified" },
+          required: false,
+          include: [
+            {
+              model: User,
+              as: "verifiedBy",
+              attributes: ["userId", "firstName", "lastName", "email"],
+            },
+          ],
+        },
+      ],
+    });
+
+    // Map properties to include signed URLs and processed verification logs
+    const processedProperties = await Promise.all(
+      properties.map(async (prop) => {
+        const propJson = prop.toJSON();
+
+        // Signed URLs
+        if (propJson.media && propJson.media.length > 0) {
+          propJson.media = await attachSignedUrls(propJson.media);
+        }
+
+        // Process verification logs
+        propJson.verificationLogs = (propJson.verificationLogs || []).map((log) => ({
+          id: log.id,
+          userId: log.verifiedBy?.userId,
+          name: `${log.verifiedBy?.firstName} ${log.verifiedBy?.lastName}`,
+          email: log.verifiedBy?.email,
+          role: log.roleAtVerification || null,
+          verifiedAt: log.createdAt,
+        }));
+
+        return propJson;
+      })
+    );
+
+    const totalPages = Math.ceil(count / pageSize);
+
+    const paginationMetadata = {
+      currentPage: pageNumber,
+      totalPages: totalPages,
+      totalItems: count,
+      hasNextPage: pageNumber < totalPages,
+      hasPrevPage: pageNumber > 1,
+    };
+
+    await logRequest(
+      req,
+      {
+        userId: req.user?.userId || null,
+        status: 200,
+        body: { success: true },
+        requestBodyLog: { isVerified, page, limit },
+      },
+      requestStartTime
+    );
+
+    return sendEncodedResponse(
+      res,
+      200,
+      true,
+      "Hot properties fetched successfully",
+      processedProperties,
+      { pagination: paginationMetadata }
+    );
+
+
+  } catch (error) {
+    return next(error);
+  }
+});
+
 module.exports = {
   createProperty,
   updateProperty,
@@ -2219,4 +2336,6 @@ module.exports = {
   getAllProperties,
   getAssignedProperties,
   getPropertyById,
+  getHotProperties,
 };
+
