@@ -2385,6 +2385,46 @@ const getHotProperties = asyncHandler(async (req, res, next) => {
   }
 });
 
+const getPropertyCounts = asyncHandler(async (req, res, next) => {
+  try {
+    const counts = await Property.findAll({
+      where: { isActive: true },
+      attributes: [
+        "propertyType",
+        [sequelize.fn("COUNT", sequelize.col("property_id")), "count"],
+      ],
+      group: ["propertyType"],
+      raw: true,
+    });
+
+    const result = {
+      Residential: 0,
+      Retail: 0,
+      Offices: 0,
+      Industrial: 0,
+      Others: 0,
+    };
+
+    counts.forEach((item) => {
+      if (result.hasOwnProperty(item.propertyType)) {
+        result[item.propertyType] = parseInt(item.count, 10);
+      } else {
+        result.Others += parseInt(item.count, 10);
+      }
+    });
+
+    return sendEncodedResponse(
+      res,
+      200,
+      true,
+      "Property counts fetched successfully",
+      result
+    );
+  } catch (error) {
+    return next(error);
+  }
+});
+
 module.exports = {
   createProperty,
   updateProperty,
@@ -2395,5 +2435,6 @@ module.exports = {
   getAssignedProperties,
   getPropertyById,
   getHotProperties,
+  getPropertyCounts,
 };
 

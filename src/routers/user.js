@@ -10,6 +10,7 @@ const {
   sendOtpHandler,
   verifyOtpHandler,
   getClientUsers,
+  getPublicBrokers,
 } = require("../controllers/user");
 const { authenticateUser } = require("../middlewares/auth");
 
@@ -81,5 +82,6 @@ userrouter.post("/logout", logout);
 userrouter.get("/refresh-token", refreshRateLimiter, refreshAccessToken);
 userrouter.post("/switch-role", authenticateUser, switchRole);
 userrouter.get("/get-client-users", authenticateUser, getClientUsers);
+userrouter.get("/brokers", getPublicBrokers);
 
 module.exports = userrouter;

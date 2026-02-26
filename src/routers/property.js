@@ -10,6 +10,7 @@ const {
   getAssignedProperties,
   getPropertyById,
   getHotProperties,
+  getPropertyCounts,
 } = require("../controllers/property");
 const {
   createPropertyManagerNotes,
@@ -70,6 +71,9 @@ router.get("/caretakers", authenticateUser, getAllCaretakers);
 
 // ✅ Get all properties with some filters
 router.get("/properties", getAllProperties);
+
+// ✅ Get property counts by category
+router.get("/properties/counts", getPropertyCounts);
 
 // ✅ Get properties assigned to logged-in Sales Manager/Executive
 router.get(
