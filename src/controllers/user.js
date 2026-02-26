@@ -1099,7 +1099,7 @@ const sendBrokerResponse = async (res, brokers, pagination, req, startTime) => {
       location: cities.length > 0 ? cities.join(", ") : "Pune", 
       rera: brokerData.reraNumber || "N/A",
       propertiesListed: listedProperties.length,
-      dealsClosed: Math.floor(Math.random() * 50) + 10,
+      dealsClosed: 0,
       tags: propertyTypes.length > 0 ? propertyTypes : ["Real Estate", "Leasing"],
       email: brokerData.email,
       mobileNumber: brokerData.mobileNumber,
