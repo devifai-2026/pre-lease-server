@@ -7,7 +7,7 @@ const {
 } = require("../utils/validators");
 const createAppError = require("../utils/appError");
 const asyncHandler = require("../utils/asyncHandler");
-const { logRequest } = require("../utils/logs");
+const { logRequest, logUpdate } = require("../utils/logs");
 const { sequelize } = require("../config/dbConnection");
 const { sendEncodedResponse } = require("../utils/responseEncoder");
 const otpService = require("../services/otpService");
@@ -1175,7 +1175,6 @@ const changeMobileNumber = asyncHandler(async (req, res, next) => {
       );
 
       // Audit log
-      const { logUpdate } = require("../utils/logs");
       await logUpdate({
         userId,
         entityType: "User",
