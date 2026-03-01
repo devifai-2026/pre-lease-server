@@ -1387,6 +1387,7 @@ const getAllProperties = asyncHandler(async (req, res, next) => {
     bedrooms,
     sortBy = "createdAt",
     sortOrder = "DESC",
+    isVerified,
   } = req.query;
 
   const requestBodyLog = {
@@ -1480,6 +1481,16 @@ const getAllProperties = asyncHandler(async (req, res, next) => {
         whereClause.microMarket = { [Op.in]: microMarketsArray };
       } else {
         whereClause.microMarket = { [Op.iLike]: `%${microMarket}%` };
+      }
+    }
+
+    if (isVerified) {
+      if (isVerified === "pending") {
+        whereClause.isVerified = {
+          [Op.or]: [{ [Op.is]: null }, { [Op.notIn]: ["completed", "partial"] }],
+        };
+      } else {
+        whereClause.isVerified = isVerified;
       }
     }
 
@@ -1736,6 +1747,7 @@ const getAssignedProperties = asyncHandler(async (req, res, next) => {
     microMarket,
     sortBy = "createdAt",
     sortOrder = "DESC",
+    isVerified,
   } = req.query;
 
   const requestBodyLog = {
@@ -1842,6 +1854,16 @@ const getAssignedProperties = asyncHandler(async (req, res, next) => {
         whereClause.microMarket = { [Op.in]: microMarketsArray };
       } else {
         whereClause.microMarket = { [Op.iLike]: `%${microMarket}%` };
+      }
+    }
+
+    if (isVerified) {
+      if (isVerified === "pending") {
+        whereClause.isVerified = {
+          [Op.or]: [{ [Op.is]: null }, { [Op.notIn]: ["completed", "partial"] }],
+        };
+      } else {
+        whereClause.isVerified = isVerified;
       }
     }
 
@@ -2244,6 +2266,221 @@ const getPropertyById = asyncHandler(async (req, res, next) => {
   }
 });
 
+const getHotProperties = asyncHandler(async (req, res, next) => {
+  const requestStartTime = Date.now();
+  const { isVerified, page = 1, limit = 10 } = req.query;
+
+  try {
+    const whereClause = { isActive: true };
+
+    if (isVerified) {
+      if (isVerified === "pending") {
+        whereClause.isVerified = {
+          [Op.or]: [{ [Op.is]: null }, { [Op.notIn]: ["completed", "partial"] }],
+        };
+      } else {
+        whereClause.isVerified = isVerified;
+      }
+    }
+
+    const pageNumber = parseInt(page);
+    const pageSize = parseInt(limit);
+    const offset = (pageNumber - 1) * pageSize;
+
+    const { count, rows: properties } = await Property.findAndCountAll({
+      where: whereClause,
+      limit: pageSize,
+      offset: offset,
+      order: [["updatedAt", "DESC"]],
+      attributes: [
+        "propertyId",
+        "ownerId",
+        "brokerId",
+        "propertyType",
+        "carpetArea",
+        "carpetAreaUnit",
+        "completionYear",
+        "lastRefurbishedYear",
+        "buildingGrade",
+        "ownershipType",
+        "parkingTwoWheeler",
+        "parkingFourWheeler",
+        "powerBackup",
+        "numberOfLifts",
+        "hvacType",
+        "furnishingStatus",
+        "titleStatus",
+        "occupancyCertificate",
+        "leaseRegistration",
+        "reraNumber",
+        "tenantType",
+        "leaseStartDate",
+        "leaseEndDate",
+        "lockInPeriodYears",
+        "lockInPeriodMonths",
+        "leaseDurationYears",
+        "rentType",
+        "rentPerSqftMonthly",
+        "totalMonthlyRent",
+        "securityDepositType",
+        "securityDepositMonths",
+        "securityDepositAmount",
+        "escalationFrequencyYears",
+        "annualEscalationPercent",
+        "maintenanceCostsIncluded",
+        "maintenanceType",
+        "maintenanceAmount",
+        "microMarket",
+        "city",
+        "state",
+        "sellingPrice",
+        "propertyTaxAnnual",
+        "insuranceAnnual",
+        "otherCostsAnnual",
+        "totalOperatingAnnualCosts",
+        "additionalIncomeAnnual",
+        "annualGrossRent",
+        "grossRentalYield",
+        "netRentalYield",
+        "paybackPeriodYears",
+        "description",
+        "additionalDescription",
+        "isVerified",
+        "salesId",
+        "createdAt",
+        "updatedAt",
+      ],
+      include: [
+        {
+          model: PropertyMedia,
+          as: "media",
+          attributes: ["mediaId", "mediaType", "fileUrl"],
+          required: false,
+          separate: true,
+        },
+        {
+          model: User,
+          as: "salesAgent",
+          attributes: ["userId", "firstName", "lastName", "email", "mobileNumber"],
+          required: false,
+        },
+        {
+          model: PropertyVerificationLog,
+          as: "verificationLogs",
+          attributes: ["id", "userId", "status", "roleAtVerification", "createdAt"],
+          where: { status: "verified" },
+          required: false,
+          include: [
+            {
+              model: User,
+              as: "verifiedBy",
+              attributes: ["userId", "firstName", "lastName", "email"],
+            },
+          ],
+        },
+      ],
+    });
+
+    // Map properties to include signed URLs and processed verification logs
+    const processedProperties = await Promise.all(
+      properties.map(async (prop) => {
+        const propJson = prop.toJSON();
+
+        // Signed URLs
+        if (propJson.media && propJson.media.length > 0) {
+          propJson.media = await attachSignedUrls(propJson.media);
+        }
+
+        // Process verification logs
+        propJson.verificationLogs = (propJson.verificationLogs || []).map((log) => ({
+          id: log.id,
+          userId: log.verifiedBy?.userId,
+          name: `${log.verifiedBy?.firstName} ${log.verifiedBy?.lastName}`,
+          email: log.verifiedBy?.email,
+          role: log.roleAtVerification || null,
+          verifiedAt: log.createdAt,
+        }));
+
+        return propJson;
+      })
+    );
+
+    const totalPages = Math.ceil(count / pageSize);
+
+    const paginationMetadata = {
+      currentPage: pageNumber,
+      totalPages: totalPages,
+      totalItems: count,
+      hasNextPage: pageNumber < totalPages,
+      hasPrevPage: pageNumber > 1,
+    };
+
+    await logRequest(
+      req,
+      {
+        userId: req.user?.userId || null,
+        status: 200,
+        body: { success: true },
+        requestBodyLog: { isVerified, page, limit },
+      },
+      requestStartTime
+    );
+
+    return sendEncodedResponse(
+      res,
+      200,
+      true,
+      "Hot properties fetched successfully",
+      processedProperties,
+      { pagination: paginationMetadata }
+    );
+
+
+  } catch (error) {
+    return next(error);
+  }
+});
+
+const getPropertyCounts = asyncHandler(async (req, res, next) => {
+  try {
+    const counts = await Property.findAll({
+      where: { isActive: true },
+      attributes: [
+        "propertyType",
+        [sequelize.fn("COUNT", sequelize.col("property_id")), "count"],
+      ],
+      group: ["propertyType"],
+      raw: true,
+    });
+
+    const result = {
+      Residential: 0,
+      Retail: 0,
+      Offices: 0,
+      Industrial: 0,
+      Others: 0,
+    };
+
+    counts.forEach((item) => {
+      if (result.hasOwnProperty(item.propertyType)) {
+        result[item.propertyType] = parseInt(item.count, 10);
+      } else {
+        result.Others += parseInt(item.count, 10);
+      }
+    });
+
+    return sendEncodedResponse(
+      res,
+      200,
+      true,
+      "Property counts fetched successfully",
+      result
+    );
+  } catch (error) {
+    return next(error);
+  }
+});
+
 module.exports = {
   createProperty,
   updateProperty,
@@ -2253,4 +2490,7 @@ module.exports = {
   getAllProperties,
   getAssignedProperties,
   getPropertyById,
+  getHotProperties,
+  getPropertyCounts,
 };
+

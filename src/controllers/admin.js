@@ -748,6 +748,70 @@ const getAllUsers = asyncHandler(async (req, res, next) => {
   }
 });
 
+const getUserById = asyncHandler(async (req, res, next) => {
+  const requestStartTime = Date.now();
+  const { userId } = req.params;
+
+  try {
+    const user = await User.findOne({
+      where: { userId, isActive: true },
+      attributes: [
+        "userId",
+        "firstName",
+        "lastName",
+        "email",
+        "mobileNumber",
+        "isActive",
+        "createdAt",
+        "reraNumber",
+      ],
+      include: [
+        {
+          model: Role,
+          as: "roles",
+          through: { attributes: [] },
+          attributes: ["roleId", "roleName", "roleType"],
+        },
+      ],
+    });
+
+    if (!user) {
+      throw createAppError("User not found", 404);
+    }
+
+    await logRequest(
+      req,
+      {
+        userId: req.user.userId,
+        status: 200,
+        body: { success: true, message: "User fetched successfully" },
+      },
+      requestStartTime
+    );
+
+    return sendEncodedResponse(
+      res,
+      200,
+      true,
+      "User fetched successfully",
+      user
+    );
+  } catch (error) {
+    await logRequest(
+      req,
+      {
+        userId: req.user?.userId || null,
+        status: error.statusCode || 500,
+        body: { success: false, message: error.message },
+        error: error.message,
+        stackTrace: error.stack,
+      },
+      requestStartTime
+    );
+    return next(error);
+  }
+});
+
 const createSuperAdmin = asyncHandler(async (req, res, next) => {
   const requestStartTime = Date.now();
 
@@ -2413,4 +2477,5 @@ module.exports = {
   deleteNotification,
   deleteAllNotifications,
   VERIFICATION_ALLOWED_ROLES,
+  getUserById,
 };
