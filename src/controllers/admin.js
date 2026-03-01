@@ -286,8 +286,15 @@ const updateUser = asyncHandler(async (req, res, next) => {
   const requestStartTime = Date.now();
   const { userId } = req.params;
 
-  const { firstName, lastName, email, mobileNumber, roleName, isActive, salesManagerId } =
-    req.body;
+  const {
+    firstName,
+    lastName,
+    email,
+    mobileNumber,
+    roleName,
+    isActive,
+    salesManagerId,
+  } = req.body;
 
   const requestBodyLog = {
     userId,
@@ -376,7 +383,7 @@ const updateUser = asyncHandler(async (req, res, next) => {
       if (salesManagerId !== undefined) {
         const relation = await SalesRelationship.findOne({
           where: { salesExecutiveId: userId },
-          transaction: t
+          transaction: t,
         });
 
         if (relation) {
@@ -565,7 +572,15 @@ const deleteUser = asyncHandler(async (req, res, next) => {
 const getAllUsers = asyncHandler(async (req, res, next) => {
   const requestStartTime = Date.now();
 
-  const { page = 1, limit = 10, roleName, isActive, search, q, query } = req.query;
+  const {
+    page = 1,
+    limit = 10,
+    roleName,
+    isActive,
+    search,
+    q,
+    query,
+  } = req.query;
   const searchTerm = search || q || query;
 
   const requestBodyLog = {
@@ -587,17 +602,22 @@ const getAllUsers = asyncHandler(async (req, res, next) => {
     if (searchTerm) {
       const tokens = searchTerm.trim().split(/\s+/).filter(Boolean);
       if (tokens.length > 0) {
-        whereClause[Op.and] = tokens.map(token => ({
+        whereClause[Op.and] = tokens.map((token) => ({
           [Op.or]: [
             { first_name: { [Op.iLike]: `%${token}%` } },
             { last_name: { [Op.iLike]: `%${token}%` } },
             { email: { [Op.iLike]: `%${token}%` } },
             { mobile_number: { [Op.iLike]: `%${token}%` } },
             sequelize.where(
-              sequelize.fn("concat", sequelize.col("first_name"), " ", sequelize.col("last_name")),
+              sequelize.fn(
+                "concat",
+                sequelize.col("first_name"),
+                " ",
+                sequelize.col("last_name")
+              ),
               { [Op.iLike]: `%${token}%` }
             ),
-          ]
+          ],
         }));
       }
     }
@@ -605,7 +625,9 @@ const getAllUsers = asyncHandler(async (req, res, next) => {
     const roleWhere = {};
     const currentUserRole = req.user?.role || "";
 
-    console.log(`[getAllUsers] Fetching users. Filter: roleName=${roleName}, isActive=${isActive}, currentUserRole=${currentUserRole}`);
+    console.log(
+      `[getAllUsers] Fetching users. Filter: roleName=${roleName}, isActive=${isActive}, currentUserRole=${currentUserRole}`
+    );
 
     // If a specific role is requested, handle it
     if (roleName && roleName !== "All") {
@@ -618,7 +640,7 @@ const getAllUsers = asyncHandler(async (req, res, next) => {
 
       if (roleWhere.roleName) {
         roleWhere.roleName = {
-          [Op.and]: [roleWhere.roleName, securityFilter]
+          [Op.and]: [roleWhere.roleName, securityFilter],
         };
       } else {
         roleWhere.roleName = securityFilter;
@@ -653,7 +675,7 @@ const getAllUsers = asyncHandler(async (req, res, next) => {
           as: "executiveRelationships",
           where: { isActive: true },
           required: false,
-        }
+        },
       ],
       order: [["createdAt", "DESC"]],
       limit: pageSize,
@@ -722,6 +744,70 @@ const getAllUsers = asyncHandler(async (req, res, next) => {
       requestStartTime
     );
 
+    return next(error);
+  }
+});
+
+const getUserById = asyncHandler(async (req, res, next) => {
+  const requestStartTime = Date.now();
+  const { userId } = req.params;
+
+  try {
+    const user = await User.findOne({
+      where: { userId, isActive: true },
+      attributes: [
+        "userId",
+        "firstName",
+        "lastName",
+        "email",
+        "mobileNumber",
+        "isActive",
+        "createdAt",
+        "reraNumber",
+      ],
+      include: [
+        {
+          model: Role,
+          as: "roles",
+          through: { attributes: [] },
+          attributes: ["roleId", "roleName", "roleType"],
+        },
+      ],
+    });
+
+    if (!user) {
+      throw createAppError("User not found", 404);
+    }
+
+    await logRequest(
+      req,
+      {
+        userId: req.user.userId,
+        status: 200,
+        body: { success: true, message: "User fetched successfully" },
+      },
+      requestStartTime
+    );
+
+    return sendEncodedResponse(
+      res,
+      200,
+      true,
+      "User fetched successfully",
+      user
+    );
+  } catch (error) {
+    await logRequest(
+      req,
+      {
+        userId: req.user?.userId || null,
+        status: error.statusCode || 500,
+        body: { success: false, message: error.message },
+        error: error.message,
+        stackTrace: error.stack,
+      },
+      requestStartTime
+    );
     return next(error);
   }
 });
@@ -933,9 +1019,9 @@ const reassignProperty = asyncHandler(async (req, res, next) => {
     }
 
     // Check if user has Sales Manager or any Sales Executive sub-role
-    const isSalesPerson = [
-      "Sales Executive - Property Manager",
-    ].includes(req.userRole || req.user.role);
+    const isSalesPerson = ["Sales Executive - Property Manager"].includes(
+      req.userRole || req.user.role
+    );
 
     const isAdminOrManager = ["Admin", "Super Admin", "Sales Manager"].includes(
       req.userRole || req.user.role
@@ -1051,17 +1137,23 @@ const reassignProperty = asyncHandler(async (req, res, next) => {
         const oldAssignee = await User.findByPk(oldSalesId, {
           attributes: ["firstName", "lastName"],
         });
-        if (oldAssignee) oldAssigneeName = `${oldAssignee.firstName} ${oldAssignee.lastName}`;
+        if (oldAssignee)
+          oldAssigneeName = `${oldAssignee.firstName} ${oldAssignee.lastName}`;
       }
 
       // Fetch admins & super admins
       const admins = await User.findAll({
-        include: [{
-          model: Role,
-          as: "roles",
-          where: { roleName: { [Op.in]: ["Admin", "Super Admin"] }, isActive: true },
-          through: { attributes: [] },
-        }],
+        include: [
+          {
+            model: Role,
+            as: "roles",
+            where: {
+              roleName: { [Op.in]: ["Admin", "Super Admin"] },
+              isActive: true,
+            },
+            through: { attributes: [] },
+          },
+        ],
         attributes: ["userId"],
         raw: true,
       });
@@ -1080,7 +1172,8 @@ const reassignProperty = asyncHandler(async (req, res, next) => {
         const oldSmRelationship = await SalesRelationship.findOne({
           where: { salesExecutiveId: oldSalesId, isActive: true },
         });
-        if (oldSmRelationship) oldSalesManagerId = oldSmRelationship.salesManagerId;
+        if (oldSmRelationship)
+          oldSalesManagerId = oldSmRelationship.salesManagerId;
       }
 
       const notificationRecords = [];
@@ -1089,20 +1182,39 @@ const reassignProperty = asyncHandler(async (req, res, next) => {
       const assigneeMessage = isReassign
         ? `Property in ${city} has been reassigned to you by ${assignerName}.`
         : `Property in ${city} has been assigned to you by ${assignerName}.`;
-      notificationRecords.push({ propertyId, userId, notificationText: assigneeMessage });
+      notificationRecords.push({
+        propertyId,
+        userId,
+        notificationText: assigneeMessage,
+      });
       io.to(`user:${userId}`).emit("property:assigned", {
-        propertyId, city, state: result.state, propertyType: result.propertyType,
-        assignedBy: req.user.userId, assignedByName: assignerName, timestamp,
+        propertyId,
+        city,
+        state: result.state,
+        propertyType: result.propertyType,
+        assignedBy: req.user.userId,
+        assignedByName: assignerName,
+        timestamp,
       });
 
       // Notify old assignee (if different from new and from assigner)
       if (oldSalesId && oldSalesId !== userId) {
         const oldMessage = `Property in ${city} has been reassigned to ${newAssigneeName} by ${assignerName}.`;
-        notificationRecords.push({ propertyId, userId: oldSalesId, notificationText: oldMessage });
+        notificationRecords.push({
+          propertyId,
+          userId: oldSalesId,
+          notificationText: oldMessage,
+        });
         io.to(`user:${oldSalesId}`).emit("property:unassigned", {
-          propertyId, city, state: result.state, propertyType: result.propertyType,
-          reassignedBy: req.user.userId, reassignedByName: assignerName,
-          reassignedTo: userId, reassignedToName: newAssigneeName, timestamp,
+          propertyId,
+          city,
+          state: result.state,
+          propertyType: result.propertyType,
+          reassignedBy: req.user.userId,
+          reassignedByName: assignerName,
+          reassignedTo: userId,
+          reassignedToName: newAssigneeName,
+          timestamp,
         });
       }
 
@@ -1112,24 +1224,48 @@ const reassignProperty = asyncHandler(async (req, res, next) => {
         : `Property in ${city} has been assigned to ${newAssigneeName} by ${assignerName}.`;
       for (const adminId of adminIds) {
         if (adminId === req.user.userId) continue; // don't double-notify assigner
-        notificationRecords.push({ propertyId, userId: adminId, notificationText: adminMessage });
+        notificationRecords.push({
+          propertyId,
+          userId: adminId,
+          notificationText: adminMessage,
+        });
         io.to(`user:${adminId}`).emit("property:assigned", {
-          propertyId, city, state: result.state, propertyType: result.propertyType,
-          assignedTo: userId, assignedToName: newAssigneeName,
-          assignedBy: req.user.userId, assignedByName: assignerName, timestamp,
+          propertyId,
+          city,
+          state: result.state,
+          propertyType: result.propertyType,
+          assignedTo: userId,
+          assignedToName: newAssigneeName,
+          assignedBy: req.user.userId,
+          assignedByName: assignerName,
+          timestamp,
         });
       }
 
       // Notify sales manager of new assignee (skip if already notified as admin or is the assigner)
-      if (salesManagerId && salesManagerId !== req.user.userId && !adminIds.includes(salesManagerId)) {
+      if (
+        salesManagerId &&
+        salesManagerId !== req.user.userId &&
+        !adminIds.includes(salesManagerId)
+      ) {
         const smMessage = isReassign
           ? `Property in ${city} has been reassigned from ${oldAssigneeName || "unassigned"} to ${newAssigneeName} in your team by ${assignerName}.`
           : `Property in ${city} has been assigned to ${newAssigneeName} in your team by ${assignerName}.`;
-        notificationRecords.push({ propertyId, userId: salesManagerId, notificationText: smMessage });
+        notificationRecords.push({
+          propertyId,
+          userId: salesManagerId,
+          notificationText: smMessage,
+        });
         io.to(`user:${salesManagerId}`).emit("property:assigned", {
-          propertyId, city, state: result.state, propertyType: result.propertyType,
-          assignedTo: userId, assignedToName: newAssigneeName,
-          assignedBy: req.user.userId, assignedByName: assignerName, timestamp,
+          propertyId,
+          city,
+          state: result.state,
+          propertyType: result.propertyType,
+          assignedTo: userId,
+          assignedToName: newAssigneeName,
+          assignedBy: req.user.userId,
+          assignedByName: assignerName,
+          timestamp,
         });
       }
 
@@ -1142,11 +1278,21 @@ const reassignProperty = asyncHandler(async (req, res, next) => {
         oldSalesManagerId !== salesManagerId
       ) {
         const oldSmMessage = `Property in ${city} has been reassigned from ${oldAssigneeName} to ${newAssigneeName} by ${assignerName}.`;
-        notificationRecords.push({ propertyId, userId: oldSalesManagerId, notificationText: oldSmMessage });
+        notificationRecords.push({
+          propertyId,
+          userId: oldSalesManagerId,
+          notificationText: oldSmMessage,
+        });
         io.to(`user:${oldSalesManagerId}`).emit("property:unassigned", {
-          propertyId, city, state: result.state, propertyType: result.propertyType,
-          reassignedBy: req.user.userId, reassignedByName: assignerName,
-          reassignedTo: userId, reassignedToName: newAssigneeName, timestamp,
+          propertyId,
+          city,
+          state: result.state,
+          propertyType: result.propertyType,
+          reassignedBy: req.user.userId,
+          reassignedByName: assignerName,
+          reassignedTo: userId,
+          reassignedToName: newAssigneeName,
+          timestamp,
         });
       }
 
@@ -1312,7 +1458,6 @@ const VERIFICATION_ALLOWED_ROLES = [
   "Admin",
   "Super Admin",
 ];
-
 
 const recalcIsVerified = (logs) => {
   if (!logs || logs.length === 0) return "pending";
@@ -1586,13 +1731,19 @@ const unverifyProperty = asyncHandler(async (req, res, next) => {
       });
       finalIsVerified = recalcIsVerified(remainingLogs);
 
-      await property.update({ isVerified: finalIsVerified }, { transaction: t });
+      await property.update(
+        { isVerified: finalIsVerified },
+        { transaction: t }
+      );
       await logUpdate({
         userId: req.user.userId,
         entityType: "Property",
         recordId: propertyId,
         oldValues: { isVerified: oldIsVerified },
-        newValues: { isVerified: finalIsVerified, unverifiedBy: req.user.userId },
+        newValues: {
+          isVerified: finalIsVerified,
+          unverifiedBy: req.user.userId,
+        },
         tableName: "properties",
         ipAddress: req.ip,
         userAgent: req.headers["user-agent"],
@@ -1751,7 +1902,15 @@ const adminGetAllProperties = asyncHandler(async (req, res, next) => {
   const requestBodyLog = {
     page,
     limit,
-    filters: { isVerified, city, state, propertyType, salesExecutiveId, salesManagerId, clientDealerId },
+    filters: {
+      isVerified,
+      city,
+      state,
+      propertyType,
+      salesExecutiveId,
+      salesManagerId,
+      clientDealerId,
+    },
   };
 
   try {
@@ -1789,9 +1948,23 @@ const adminGetAllProperties = asyncHandler(async (req, res, next) => {
       const propertyIds = [...new Set(inquiries.map((i) => i.propertyId))];
       if (propertyIds.length === 0) {
         // No properties linked to this dealer — return empty immediately
-        return sendEncodedResponse(res, 200, true, "Properties fetched successfully", [], {
-          pagination: { currentPage: 1, pageSize: parseInt(limit), totalItems: 0, totalPages: 0, hasNextPage: false, hasPrevPage: false },
-        });
+        return sendEncodedResponse(
+          res,
+          200,
+          true,
+          "Properties fetched successfully",
+          [],
+          {
+            pagination: {
+              currentPage: 1,
+              pageSize: parseInt(limit),
+              totalItems: 0,
+              totalPages: 0,
+              hasNextPage: false,
+              hasPrevPage: false,
+            },
+          }
+        );
       }
       whereClause.propertyId = { [Op.in]: propertyIds };
     }
@@ -1841,13 +2014,25 @@ const adminGetAllProperties = asyncHandler(async (req, res, next) => {
         {
           model: User,
           as: "salesAgent",
-          attributes: ["userId", "firstName", "lastName", "email", "mobileNumber"],
+          attributes: [
+            "userId",
+            "firstName",
+            "lastName",
+            "email",
+            "mobileNumber",
+          ],
           required: false,
         },
         {
           model: PropertyVerificationLog,
           as: "verificationLogs",
-          attributes: ["id", "userId", "status", "roleAtVerification", "createdAt"],
+          attributes: [
+            "id",
+            "userId",
+            "status",
+            "roleAtVerification",
+            "createdAt",
+          ],
           where: { status: "verified" },
           required: false,
           include: [
@@ -1886,7 +2071,10 @@ const adminGetAllProperties = asyncHandler(async (req, res, next) => {
           userId: log.verifiedBy?.userId,
           name: `${log.verifiedBy?.firstName} ${log.verifiedBy?.lastName}`,
           email: log.verifiedBy?.email,
-          role: log.roleAtVerification || log.verifiedBy?.roles?.[0]?.roleName || null,
+          role:
+            log.roleAtVerification ||
+            log.verifiedBy?.roles?.[0]?.roleName ||
+            null,
           verifiedAt: log.createdAt,
         }));
         return d;
@@ -1898,7 +2086,11 @@ const adminGetAllProperties = asyncHandler(async (req, res, next) => {
       {
         userId: req.user.userId,
         status: 200,
-        body: { success: true, message: "Properties fetched successfully", count },
+        body: {
+          success: true,
+          message: "Properties fetched successfully",
+          count,
+        },
         requestBodyLog,
       },
       requestStartTime
@@ -1964,14 +2156,24 @@ const adminGetPropertyById = asyncHandler(async (req, res, next) => {
         {
           model: Caretaker,
           as: "caretaker",
-          attributes: ["caretakerId", "caretakerName", "caretakerType", "contactInfo"],
+          attributes: [
+            "caretakerId",
+            "caretakerName",
+            "caretakerType",
+            "contactInfo",
+          ],
           where: { isActive: true },
           required: false,
         },
         {
           model: PropertyConnectivity,
           as: "connectivity",
-          attributes: ["connectivityId", "connectivityType", "name", "distanceKm"],
+          attributes: [
+            "connectivityId",
+            "connectivityType",
+            "name",
+            "distanceKm",
+          ],
           required: false,
         },
         {
@@ -1995,13 +2197,25 @@ const adminGetPropertyById = asyncHandler(async (req, res, next) => {
         {
           model: User,
           as: "salesAgent",
-          attributes: ["userId", "firstName", "lastName", "email", "mobileNumber"],
+          attributes: [
+            "userId",
+            "firstName",
+            "lastName",
+            "email",
+            "mobileNumber",
+          ],
           required: false,
         },
         {
           model: PropertyVerificationLog,
           as: "verificationLogs",
-          attributes: ["id", "userId", "status", "roleAtVerification", "createdAt"],
+          attributes: [
+            "id",
+            "userId",
+            "status",
+            "roleAtVerification",
+            "createdAt",
+          ],
           where: { status: "verified" },
           required: false,
           include: [
@@ -2046,7 +2260,8 @@ const adminGetPropertyById = asyncHandler(async (req, res, next) => {
       userId: log.verifiedBy?.userId,
       name: `${log.verifiedBy?.firstName} ${log.verifiedBy?.lastName}`,
       email: log.verifiedBy?.email,
-      role: log.roleAtVerification || log.verifiedBy?.roles?.[0]?.roleName || null,
+      role:
+        log.roleAtVerification || log.verifiedBy?.roles?.[0]?.roleName || null,
       verifiedAt: log.createdAt,
     }));
 
@@ -2061,7 +2276,13 @@ const adminGetPropertyById = asyncHandler(async (req, res, next) => {
       requestStartTime
     );
 
-    return sendEncodedResponse(res, 200, true, "Property fetched successfully", d);
+    return sendEncodedResponse(
+      res,
+      200,
+      true,
+      "Property fetched successfully",
+      d
+    );
   } catch (error) {
     await logRequest(
       req,
@@ -2092,24 +2313,25 @@ const getAdminNotifications = asyncHandler(async (req, res, next) => {
     userId,
     page,
     limit,
-    role: req.userRole
+    role: req.userRole,
   };
 
   try {
-    const { count, rows: notifications } = await PropertyNotificationEvent.findAndCountAll({
-      where: { userId, is_deleted: false },
-      include: [
-        {
-          model: Property,
-          as: "property",
-          attributes: ["propertyId", "city", "state", "propertyType"],
-          required: false
-        }
-      ],
-      order: [["createdAt", "DESC"]],
-      limit: pageSize,
-      offset: offset,
-    });
+    const { count, rows: notifications } =
+      await PropertyNotificationEvent.findAndCountAll({
+        where: { userId, is_deleted: false },
+        include: [
+          {
+            model: Property,
+            as: "property",
+            attributes: ["propertyId", "city", "state", "propertyType"],
+            required: false,
+          },
+        ],
+        order: [["createdAt", "DESC"]],
+        limit: pageSize,
+        offset: offset,
+      });
 
     const totalPages = Math.ceil(count / pageSize);
 
@@ -2118,7 +2340,11 @@ const getAdminNotifications = asyncHandler(async (req, res, next) => {
       {
         userId,
         status: 200,
-        body: { success: true, message: "Notifications fetched successfully", count: notifications.length },
+        body: {
+          success: true,
+          message: "Notifications fetched successfully",
+          count: notifications.length,
+        },
         requestBodyLog,
       },
       requestStartTime
@@ -2152,7 +2378,7 @@ const markNotificationAsRead = asyncHandler(async (req, res, next) => {
 
   try {
     const notification = await PropertyNotificationEvent.findOne({
-      where: { id: notificationId, userId, is_deleted: false }
+      where: { id: notificationId, userId, is_deleted: false },
     });
 
     if (!notification) {
@@ -2161,7 +2387,9 @@ const markNotificationAsRead = asyncHandler(async (req, res, next) => {
 
     await notification.update({ isRead: true });
 
-    return sendEncodedResponse(res, 200, true, "Notification marked as read", { notificationId });
+    return sendEncodedResponse(res, 200, true, "Notification marked as read", {
+      notificationId,
+    });
   } catch (error) {
     return next(error);
   }
@@ -2176,7 +2404,13 @@ const markAllNotificationsAsRead = asyncHandler(async (req, res, next) => {
       { where: { userId, isRead: false, is_deleted: false } }
     );
 
-    return sendEncodedResponse(res, 200, true, "All notifications marked as read", {});
+    return sendEncodedResponse(
+      res,
+      200,
+      true,
+      "All notifications marked as read",
+      {}
+    );
   } catch (error) {
     return next(error);
   }
@@ -2188,7 +2422,7 @@ const deleteNotification = asyncHandler(async (req, res, next) => {
 
   try {
     const notification = await PropertyNotificationEvent.findOne({
-      where: { id: notificationId, userId }
+      where: { id: notificationId, userId },
     });
 
     if (!notification) {
@@ -2197,7 +2431,13 @@ const deleteNotification = asyncHandler(async (req, res, next) => {
 
     await notification.update({ is_deleted: true });
 
-    return sendEncodedResponse(res, 200, true, "Notification deleted successfully", { notificationId });
+    return sendEncodedResponse(
+      res,
+      200,
+      true,
+      "Notification deleted successfully",
+      { notificationId }
+    );
   } catch (error) {
     return next(error);
   }
@@ -2237,4 +2477,5 @@ module.exports = {
   deleteNotification,
   deleteAllNotifications,
   VERIFICATION_ALLOWED_ROLES,
+  getUserById,
 };

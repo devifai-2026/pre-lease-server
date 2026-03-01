@@ -104,16 +104,12 @@ module.exports = {
       CREATE INDEX IF NOT EXISTS idx_pvl_property_status ON property_verification_logs(property_id, status);
 
       -- Property Inquiries
-      CREATE INDEX IF NOT EXISTS idx_property_inquiries_assigned_status_created ON property_inquiries(assigned_to, status, created_at DESC) WHERE assigned_to IS NOT NULL AND status NOT IN ('converted','closed');
       CREATE INDEX IF NOT EXISTS idx_property_inquiries_assigned_to ON property_inquiries(assigned_to) WHERE assigned_to IS NOT NULL;
       CREATE INDEX IF NOT EXISTS idx_property_inquiries_created_at ON property_inquiries(created_at DESC);
       CREATE INDEX IF NOT EXISTS idx_property_inquiries_inquirer_id ON property_inquiries(inquirer_id);
-      CREATE INDEX IF NOT EXISTS idx_property_inquiries_inquiries ON property_inquiries USING gin(inquiries);
-      CREATE INDEX IF NOT EXISTS idx_property_inquiries_pending_priority ON property_inquiries(status, priority, created_at DESC) WHERE status = 'pending';
-      CREATE INDEX IF NOT EXISTS idx_property_inquiries_priority ON property_inquiries(priority) WHERE status NOT IN ('converted','closed');
+      CREATE INDEX IF NOT EXISTS idx_property_inquiries_priority ON property_inquiries(priority);
       CREATE INDEX IF NOT EXISTS idx_property_inquiries_property_id ON property_inquiries(property_id);
       CREATE INDEX IF NOT EXISTS idx_property_inquiries_source ON property_inquiries(source);
-      CREATE INDEX IF NOT EXISTS idx_property_inquiries_status ON property_inquiries(status);
     `);
   },
   async down(queryInterface) {

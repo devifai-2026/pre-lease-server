@@ -13,6 +13,8 @@ app.use(
     origin: [
       /^http:\/\/localhost(:\d+)?$/,
       /^http:\/\/127\.0\.0\.1(:\d+)?$/,
+      "https://starlit-parfait-041a93.netlify.app",
+      "https://prelease-admin-qa.netlify.app",
       process.env.CORS_ORIGIN,
     ].filter(Boolean),
     credentials: true,
