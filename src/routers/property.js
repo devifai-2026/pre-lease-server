@@ -136,7 +136,12 @@ router.get(
 );
 
 // ✅ Owner can see all notes for all their properties
-router.get("/owner/notes", authenticateUser, checkRole(["Owner"]), getAllOwnerNotes);
+router.get(
+  "/owner/notes",
+  authenticateUser,
+  checkRole(["Owner"]),
+  getAllOwnerNotes
+);
 
 // ✅ Owner can add notes to their property
 router.post(
