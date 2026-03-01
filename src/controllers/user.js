@@ -1068,9 +1068,21 @@ const verifyOtpHandler = asyncHandler(async (req, res, next) => {
 // ============================================
 const changeMobileNumber = asyncHandler(async (req, res, next) => {
   const requestStartTime = Date.now();
-  const { newMobileNumber, otp, verificationId } = req.body;
-  const userId = req.user.userId;
+  const { newMobileNumber, otp, verificationId, userId: targetUserId } = req.body;
+  let userId = req.user.userId;
   const currentRole = req.user.role;
+
+  // Allow Admins/Sales Managers to change another user's mobile number
+  if (targetUserId && targetUserId !== req.user.userId) {
+    const allowedRoles = ["Admin", "Super Admin", "Sales Manager"];
+    if (!allowedRoles.includes(currentRole)) {
+      throw createAppError(
+        "Only Admin, Super Admin, or Sales Manager can change another user's mobile number",
+        403
+      );
+    }
+    userId = targetUserId;
+  }
 
   const requestBodyLog = {
     userId,
@@ -1100,14 +1112,6 @@ const changeMobileNumber = asyncHandler(async (req, res, next) => {
       );
     }
 
-    // Cannot be the same as current
-    if (req.user.mobileNumber === newMobileNumber) {
-      throw createAppError(
-        "New mobile number must be different from current mobile number",
-        400
-      );
-    }
-
     // Check if new number already taken by another user
     const existingUser = await User.findOne({
       where: { mobileNumber: newMobileNumber },
@@ -1129,18 +1133,26 @@ const changeMobileNumber = asyncHandler(async (req, res, next) => {
 
     // Start transaction
     const result = await sequelize.transaction(async (t) => {
-      // Fetch current user for audit log old values
-      const currentUser = await User.findOne({
+      // Fetch target user for audit log old values and basic validation
+      const targetUser = await User.findOne({
         where: { userId, isActive: true },
         attributes: ["userId", "mobileNumber"],
         transaction: t,
       });
 
-      if (!currentUser) {
+      if (!targetUser) {
         throw createAppError("User not found or inactive", 404);
       }
 
-      const oldMobileNumber = currentUser.mobileNumber;
+      // Cannot be the same as current for the target user
+      if (targetUser.mobileNumber === newMobileNumber) {
+        throw createAppError(
+          "New mobile number must be different from current mobile number",
+          400
+        );
+      }
+
+      const oldMobileNumber = targetUser.mobileNumber;
 
       // Update mobile number
       await User.update(
@@ -1154,10 +1166,19 @@ const changeMobileNumber = asyncHandler(async (req, res, next) => {
         { where: { userId, isActive: true }, transaction: t }
       );
 
-      // Create new refresh token
+      // Create new refresh token for the target user ONLY if they are updating themselves
+      let targetCurrentRole = currentRole;
+      if (userId !== req.user.userId) {
+         // fetch their role for the new token
+         const userRoles = await Role.findAll({
+            include: [{ model: User, as: "users", where: { userId }, through: {attributes: []} }]
+         });
+         targetCurrentRole = userRoles.length > 0 ? userRoles[0].roleName : "Owner";
+      }
+
       const newRefreshTokenStr = Token.generateRefreshToken(
         userId,
-        currentRole
+        targetCurrentRole
       );
       const newTokenRecord = await Token.create(
         {

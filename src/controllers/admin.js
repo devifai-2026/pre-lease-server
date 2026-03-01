@@ -327,24 +327,27 @@ const updateUser = asyncHandler(async (req, res, next) => {
       );
     }
 
-    if (email || mobileNumber) {
-      const duplicateUser = await User.findOne({
-        where: {
-          userId: { [Op.ne]: userId },
-          [Op.or]: [
-            ...(email ? [{ email }] : []),
-            ...(mobileNumber ? [{ mobileNumber }] : []),
-          ],
-        },
-      });
+    if (email !== undefined || mobileNumber !== undefined) {
+      const orConditions = [];
+      if (email && email !== existingUser.email) orConditions.push({ email });
+      if (mobileNumber && mobileNumber !== existingUser.mobileNumber) orConditions.push({ mobileNumber });
 
-      if (duplicateUser) {
-        if (duplicateUser.email === email) {
-          throw createAppError("Email already exists", 409);
-        }
-        if (duplicateUser.mobileNumber === mobileNumber) {
-          throw createAppError("Mobile number already exists", 409);
-        }
+      if (orConditions.length > 0) {
+          const duplicateUser = await User.findOne({
+            where: {
+              userId: { [Op.ne]: userId },
+              [Op.or]: orConditions,
+            },
+          });
+
+          if (duplicateUser) {
+            if (email && duplicateUser.email === email) {
+              throw createAppError("Email already exists", 409);
+            }
+            if (mobileNumber && duplicateUser.mobileNumber === mobileNumber) {
+              throw createAppError("Mobile number already exists", 409);
+            }
+          }
       }
     }
 
