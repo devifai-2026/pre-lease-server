@@ -56,7 +56,6 @@ const PropertyManagerNotes = sequelize.define(
       type: DataTypes.UUID,
       allowNull: true,
       defaultValue: null,
-      field: "created_by",
     },
 
     // ✅ NEW — who last updated this note
@@ -64,7 +63,6 @@ const PropertyManagerNotes = sequelize.define(
       type: DataTypes.UUID,
       allowNull: true,
       defaultValue: null,
-      field: "updated_by",
     },
 
     // ✅ NEW — whether this note has been edited after creation
@@ -72,7 +70,6 @@ const PropertyManagerNotes = sequelize.define(
       type: DataTypes.BOOLEAN,
       allowNull: false,
       defaultValue: false,
-      field: "is_edited",
     },
 
     // ✅ NEW — the edited version of the note (null if not edited)
@@ -80,7 +77,6 @@ const PropertyManagerNotes = sequelize.define(
       type: DataTypes.TEXT,
       allowNull: true,
       defaultValue: null,
-      field: "edited_note",
     },
   },
   {
