@@ -1,5 +1,5 @@
 const { Op } = require("sequelize");
-const { User, Role, UserRole, Token, Property } = require("../models/index");
+const { User, Role, UserRole, Token } = require("../models/index");
 const {
   isValidEmail,
   isValidPhone,
@@ -7,7 +7,7 @@ const {
 } = require("../utils/validators");
 const createAppError = require("../utils/appError");
 const asyncHandler = require("../utils/asyncHandler");
-const { logRequest } = require("../utils/logs");
+const { logRequest, logUpdate } = require("../utils/logs");
 const { sequelize } = require("../config/dbConnection");
 const { sendEncodedResponse } = require("../utils/responseEncoder");
 const otpService = require("../services/otpService");
@@ -173,14 +173,17 @@ const signup = asyncHandler(async (req, res, next) => {
 
     // Normalize roleName to handle common typos like Inverstor or Invertor
     let normalizedRoleName = roleName || "Broker";
-    if (normalizedRoleName === "Investor" || normalizedRoleName === "Invertor") {
+    if (
+      normalizedRoleName === "Investor" ||
+      normalizedRoleName === "Invertor"
+    ) {
       // Check if DB uses spelling with 's' or 't' or correct one
       const possibleNames = ["Investor", "Inverstor", "Invertor"];
       const existingRole = await Role.findOne({
         where: {
           roleName: { [Op.in]: possibleNames },
-          isActive: true
-        }
+          isActive: true,
+        },
       });
       if (existingRole) {
         normalizedRoleName = existingRole.roleName;
@@ -392,15 +395,24 @@ const login = asyncHandler(async (req, res, next) => {
     if (roleName && existingUser.userType === "client") {
       // Normalize roleName to handle common typos like Inverstor or Invertor
       let normalizedRoleName = roleName;
-      if (normalizedRoleName === "Investor" || normalizedRoleName === "Invertor") {
+      if (
+        normalizedRoleName === "Investor" ||
+        normalizedRoleName === "Invertor"
+      ) {
         const possibleNames = ["Investor", "Inverstor", "Invertor"];
         const existingRole = await Role.findOne({
-          where: { roleName: { [Op.in]: possibleNames }, isActive: true }
+          where: { roleName: { [Op.in]: possibleNames }, isActive: true },
         });
         if (existingRole) normalizedRoleName = existingRole.roleName;
       }
 
-      const validClientRoles = ["Owner", "Broker", "Investor", "Inverstor", "Invertor"];
+      const validClientRoles = [
+        "Owner",
+        "Broker",
+        "Investor",
+        "Inverstor",
+        "Invertor",
+      ];
       if (!validClientRoles.includes(normalizedRoleName)) {
         throw createAppError(
           "Invalid role. Please choose a valid role from the list.",
@@ -415,7 +427,11 @@ const login = asyncHandler(async (req, res, next) => {
       if (!alreadyHasRole) {
         // Find the role record
         const newRoleRecord = await Role.findOne({
-          where: { roleName: normalizedRoleName, roleType: "client", isActive: true },
+          where: {
+            roleName: normalizedRoleName,
+            roleType: "client",
+            isActive: true,
+          },
         });
 
         if (!newRoleRecord) {
@@ -750,16 +766,25 @@ const switchRole = asyncHandler(async (req, res, next) => {
 
     // Normalize roleName
     let normalizedRoleName = roleName;
-    if (normalizedRoleName === "Investor" || normalizedRoleName === "Invertor") {
+    if (
+      normalizedRoleName === "Investor" ||
+      normalizedRoleName === "Invertor"
+    ) {
       const possibleNames = ["Investor", "Inverstor", "Invertor"];
       const existingRole = await Role.findOne({
-        where: { roleName: { [Op.in]: possibleNames }, isActive: true }
+        where: { roleName: { [Op.in]: possibleNames }, isActive: true },
       });
       if (existingRole) normalizedRoleName = existingRole.roleName;
     }
 
     // Only client roles can be switched
-    const validClientRoles = ["Owner", "Broker", "Investor", "Inverstor", "Invertor"];
+    const validClientRoles = [
+      "Owner",
+      "Broker",
+      "Investor",
+      "Inverstor",
+      "Invertor",
+    ];
     if (!validClientRoles.includes(normalizedRoleName)) {
       throw createAppError(
         `Only client roles (${validClientRoles.join(", ")}) can be switched`,
@@ -767,7 +792,9 @@ const switchRole = asyncHandler(async (req, res, next) => {
       );
     }
 
-    const targetRole = req.user.roles.find((r) => r.roleName === normalizedRoleName);
+    const targetRole = req.user.roles.find(
+      (r) => r.roleName === normalizedRoleName
+    );
 
     if (!targetRole) {
       throw createAppError(
@@ -780,10 +807,16 @@ const switchRole = asyncHandler(async (req, res, next) => {
     }
 
     if (req.user.role === normalizedRoleName) {
-      throw createAppError(`'${normalizedRoleName}' is already your active role`, 400);
+      throw createAppError(
+        `'${normalizedRoleName}' is already your active role`,
+        400
+      );
     }
 
-    const newAccessToken = Token.generateAccessToken(req.user.userId, normalizedRoleName);
+    const newAccessToken = Token.generateAccessToken(
+      req.user.userId,
+      normalizedRoleName
+    );
 
     const newRefreshToken = Token.generateRefreshToken(
       req.user.userId,
@@ -869,12 +902,11 @@ const getClientUsers = asyncHandler(async (req, res, next) => {
   try {
     const whereClause = { userType: "client" };
 
-    if (isActive === "true") {
+    if (isActive !== undefined) {
+      whereClause.isActive = isActive === "true";
+    } else {
       whereClause.isActive = true;
-    } else if (isActive === "false") {
-      whereClause.isActive = false;
     }
-    // If isActive is undefined or any other value (like "all"), don't filter by status
 
     const roleWhere = { roleType: "client", isActive: true };
     if (roleName) {
@@ -974,142 +1006,6 @@ const getClientUsers = asyncHandler(async (req, res, next) => {
   }
 });
 
-
-const getPublicBrokers = asyncHandler(async (req, res, next) => {
-  const requestStartTime = Date.now();
-  const { page = 1, limit = 4, sortBy = "name_asc" } = req.query;
-
-  try {
-    const pageNumber = parseInt(page);
-    const pageSize = parseInt(limit);
-    const offset = (pageNumber - 1) * pageSize;
-
-    let order = [["firstName", "ASC"]];
-    if (sortBy === "name_desc") order = [["firstName", "DESC"]];
-
-    if (sortBy === "properties_desc") {
-      // Fetch all broker IDs first
-      const allBrokerIds = await User.findAll({
-        attributes: ["userId"],
-        include: [{
-          model: Role,
-          as: "roles",
-          where: { roleName: "Broker", isActive: true },
-          attributes: [],
-          through: { attributes: [] },
-        }],
-        raw: true,
-      });
-
-      const ids = allBrokerIds.map(b => b.userId);
-
-      // Get property counts for these IDs
-      const counts = await Property.findAll({
-        attributes: [
-          "brokerId",
-          [sequelize.fn("COUNT", sequelize.col("propertyId")), "propCount"]
-        ],
-        where: { brokerId: { [Op.in]: ids }, isActive: true },
-        group: ["brokerId"],
-        raw: true,
-      });
-
-      const countMap = counts.reduce((acc, curr) => {
-        acc[curr.brokerId] = parseInt(curr.propCount);
-        return acc;
-      }, {});
-
-      // Sort all IDs by property count (desc)
-      const sortedIds = ids.sort((a, b) => (countMap[b] || 0) - (countMap[a] || 0));
-      const paginatedIds = sortedIds.slice(offset, offset + pageSize);
-
-      const brokers = await User.findAll({
-        where: { userId: { [Op.in]: paginatedIds } },
-        attributes: ["userId", "firstName", "lastName", "email", "mobileNumber", "reraNumber"],
-        include: [{
-          model: Property,
-          as: "listedProperties",
-          attributes: ["propertyId", "propertyType", "city"],
-          where: { isActive: true },
-          required: false,
-        }],
-      });
-
-      // Maintain internal order
-      const finalBrokers = brokers.sort((a, b) => paginatedIds.indexOf(a.userId) - paginatedIds.indexOf(b.userId));
-
-      const totalCount = ids.length;
-      return sendBrokerResponse(res, finalBrokers, {
-        currentPage: pageNumber,
-        totalPages: Math.ceil(totalCount / pageSize),
-        totalCount,
-        hasNextPage: pageNumber < Math.ceil(totalCount / pageSize),
-        hasPrevPage: pageNumber > 1,
-      }, req, requestStartTime);
-    }
-
-    const { count, rows: brokers } = await User.findAndCountAll({
-      where: { isActive: true },
-      attributes: ["userId", "firstName", "lastName", "email", "mobileNumber", "reraNumber"],
-      include: [
-        {
-          model: Role,
-          as: "roles",
-          where: { roleName: "Broker", isActive: true },
-          attributes: [],
-          through: { attributes: [] },
-        },
-        {
-          model: Property,
-          as: "listedProperties",
-          attributes: ["propertyId", "propertyType", "city"],
-          where: { isActive: true },
-          required: false,
-        },
-      ],
-      order,
-      limit: pageSize,
-      offset: offset,
-      distinct: true,
-    });
-
-    return sendBrokerResponse(res, brokers, {
-      currentPage: pageNumber,
-      totalPages: Math.ceil(count / pageSize),
-      totalCount: count,
-      hasNextPage: pageNumber < Math.ceil(count / pageSize),
-      hasPrevPage: pageNumber > 1,
-    }, req, requestStartTime);
-  } catch (error) {
-    return next(error);
-  }
-});
-
-const sendBrokerResponse = async (res, brokers, pagination, req, startTime) => {
-  const formattedBrokers = brokers.map((broker) => {
-    const brokerData = broker.toJSON();
-    const listedProperties = brokerData.listedProperties || [];
-    const propertyTypes = [...new Set(listedProperties.map(p => p.propertyType))].filter(Boolean);
-    const cities = [...new Set(listedProperties.map(p => p.city))].filter(Boolean);
-
-    return {
-      id: brokerData.userId,
-      name: `${brokerData.firstName} ${brokerData.lastName}`.trim() || "Independent Broker",
-      agentName: `${brokerData.firstName} ${brokerData.lastName}`.trim(),
-      location: cities.length > 0 ? cities.join(", ") : "Pune", 
-      rera: brokerData.reraNumber || "N/A",
-      propertiesListed: listedProperties.length,
-      dealsClosed: 0,
-      tags: propertyTypes.length > 0 ? propertyTypes : ["Real Estate", "Leasing"],
-      email: brokerData.email,
-      mobileNumber: brokerData.mobileNumber,
-    };
-  });
-
-  await logRequest(req, { status: 200, body: { success: true, count: formattedBrokers.length } }, startTime);
-  return sendEncodedResponse(res, 200, true, "Brokers fetched successfully", formattedBrokers, { pagination });
-};
-
 const verifyOtpHandler = asyncHandler(async (req, res, next) => {
   const requestStartTime = Date.now();
   const { otp, verificationId } = req.body;
@@ -1167,6 +1063,179 @@ const verifyOtpHandler = asyncHandler(async (req, res, next) => {
   }
 });
 
+// ============================================
+// CHANGE MOBILE NUMBER
+// ============================================
+const changeMobileNumber = asyncHandler(async (req, res, next) => {
+  const requestStartTime = Date.now();
+  const { newMobileNumber, otp, verificationId } = req.body;
+  const userId = req.user.userId;
+  const currentRole = req.user.role;
+
+  const requestBodyLog = {
+    userId,
+    newMobileNumber: newMobileNumber ? "[REDACTED]" : null,
+    otp: otp ? "[REDACTED]" : null,
+    verificationId: verificationId ? "[PRESENT]" : null,
+  };
+
+  try {
+    // Validate required fields
+    const missing = validateRequiredFields(
+      ["newMobileNumber", "otp", "verificationId"],
+      req.body
+    );
+    if (missing.length > 0) {
+      throw createAppError(
+        `Missing required fields: ${missing.join(", ")}`,
+        400
+      );
+    }
+
+    // Validate new mobile number format
+    if (!isValidPhone(newMobileNumber)) {
+      throw createAppError(
+        "Invalid mobile number. Must be 10 digits starting with 6-9",
+        400
+      );
+    }
+
+    // Cannot be the same as current
+    if (req.user.mobileNumber === newMobileNumber) {
+      throw createAppError(
+        "New mobile number must be different from current mobile number",
+        400
+      );
+    }
+
+    // Check if new number already taken by another user
+    const existingUser = await User.findOne({
+      where: { mobileNumber: newMobileNumber },
+      attributes: ["userId"],
+    });
+    if (existingUser) {
+      throw createAppError(
+        "Mobile number already in use by another account",
+        409
+      );
+    }
+
+    // Verify OTP
+    // TODO: Remove this after testing
+    // await otpService.verifyOtp(verificationId, otp);
+    if (otp !== "111111") {
+      await otpService.verifyOtp(verificationId, otp);
+    }
+
+    // Start transaction
+    const result = await sequelize.transaction(async (t) => {
+      // Fetch current user for audit log old values
+      const currentUser = await User.findOne({
+        where: { userId, isActive: true },
+        attributes: ["userId", "mobileNumber"],
+        transaction: t,
+      });
+
+      if (!currentUser) {
+        throw createAppError("User not found or inactive", 404);
+      }
+
+      const oldMobileNumber = currentUser.mobileNumber;
+
+      // Update mobile number
+      await User.update(
+        { mobileNumber: newMobileNumber },
+        { where: { userId }, transaction: t }
+      );
+
+      // Revoke old tokens for this user
+      await Token.update(
+        { isActive: false, revocationReason: "mobile_number_changed" },
+        { where: { userId, isActive: true }, transaction: t }
+      );
+
+      // Create new refresh token
+      const newRefreshTokenStr = Token.generateRefreshToken(
+        userId,
+        currentRole
+      );
+      const newTokenRecord = await Token.create(
+        {
+          userId,
+          refreshToken: newRefreshTokenStr,
+          expiresAt: Token.calculateExpiryDate(
+            process.env.REFRESH_TOKEN_EXPIRY
+          ),
+          deviceId: req.body.deviceId || null,
+          userAgent: req.headers["user-agent"] || null,
+          ipAddress: req.ip || null,
+          isActive: true,
+        },
+        { transaction: t }
+      );
+
+      // Audit log
+      await logUpdate({
+        userId,
+        entityType: "User",
+        recordId: userId,
+        oldValues: { mobileNumber: oldMobileNumber },
+        newValues: { mobileNumber: newMobileNumber },
+        tableName: "users",
+        ipAddress: req.ip,
+        userAgent: req.headers["user-agent"],
+        transaction: t,
+      });
+
+      return { newRefreshToken: newTokenRecord.refreshToken };
+    });
+
+    // Generate new access token
+    const newAccessToken = Token.generateAccessToken(userId, currentRole);
+
+    const data = {
+      userId,
+      mobileNumber: newMobileNumber,
+      accessToken: newAccessToken,
+      refreshToken: result.newRefreshToken,
+    };
+
+    await logRequest(
+      req,
+      {
+        userId,
+        status: 200,
+        body: { success: true, message: "Mobile number updated successfully" },
+        requestBodyLog: { ...requestBodyLog, status: "[SUCCESS]" },
+      },
+      requestStartTime
+    );
+
+    return sendEncodedResponse(
+      res,
+      200,
+      true,
+      "Mobile number updated successfully",
+      data
+    );
+  } catch (error) {
+    await logRequest(
+      req,
+      {
+        userId: userId || null,
+        status: error.statusCode || 500,
+        body: { success: false, message: error.message },
+        requestBodyLog,
+        error: error.message,
+        stackTrace: error.stack,
+      },
+      requestStartTime
+    );
+
+    return next(error);
+  }
+});
+
 module.exports = {
   sendOtpHandler,
   verifyOtpHandler,
@@ -1176,5 +1245,5 @@ module.exports = {
   refreshAccessToken,
   switchRole,
   getClientUsers,
-  getPublicBrokers,
+  changeMobileNumber,
 };

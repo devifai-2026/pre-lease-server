@@ -266,12 +266,12 @@ const checkRole = (allowedRoles) => {
     // Extract role names from user's roles
     const userRoleNames = req.user.roles.map((role) => role.roleName);
 
-    // Check if user has any of the allowed roles
-    const hasPermission = allowedRoles.some((role) =>
-      userRoleNames.includes(role)
+    // Check if user has any of the allowed roles — find the first match
+    const matchedRole = req.user.roles.find((role) =>
+      allowedRoles.includes(role.roleName)
     );
 
-    if (!hasPermission) {
+    if (!matchedRole) {
       return next(
         createAppError(
           `Access denied. Required roles: ${allowedRoles.join(" or ")}`,
@@ -280,8 +280,8 @@ const checkRole = (allowedRoles) => {
       );
     }
 
-    // Attach primary role for easy access in controllers
-    req.userRole = req.user.roles[0].roleName;
+    // Attach the MATCHED role (not blindly roles[0]) so controllers see the right role
+    req.userRole = matchedRole.roleName;
 
     next();
   };

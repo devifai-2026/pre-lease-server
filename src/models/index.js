@@ -235,6 +235,26 @@ PropertyManagerNotes.belongsTo(User, {
   as: "salesExecutive",
 });
 
+// User (Edited By) <-> PropertyManagerNotes (One-to-Many)  ← NEW
+User.hasMany(PropertyManagerNotes, {
+  foreignKey: "editedBy",
+  as: "editedNotes",
+});
+PropertyManagerNotes.belongsTo(User, {
+  foreignKey: "editedBy",
+  as: "editor",
+});
+
+// User (Approved By) <-> PropertyManagerNotes (One-to-Many)  ← NEW
+User.hasMany(PropertyManagerNotes, {
+  foreignKey: "approvedBy",
+  as: "approvedNotes",
+});
+PropertyManagerNotes.belongsTo(User, {
+  foreignKey: "approvedBy",
+  as: "approver",
+});
+
 // ============================================
 // AUDIT LOG ASSOCIATIONS
 // ============================================

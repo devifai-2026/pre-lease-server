@@ -12,6 +12,7 @@ const {
   Caretaker,
   PropertyCertification,
   PropertyConnectivity,
+  PropertyInquiry,
 } = require("../models");
 const {
   validateRequiredFields,
@@ -285,8 +286,15 @@ const updateUser = asyncHandler(async (req, res, next) => {
   const requestStartTime = Date.now();
   const { userId } = req.params;
 
-  const { firstName, lastName, email, mobileNumber, roleName, isActive, salesManagerId } =
-    req.body;
+  const {
+    firstName,
+    lastName,
+    email,
+    mobileNumber,
+    roleName,
+    isActive,
+    salesManagerId,
+  } = req.body;
 
   const requestBodyLog = {
     userId,
@@ -312,12 +320,9 @@ const updateUser = asyncHandler(async (req, res, next) => {
     }
 
     const currentRole = existingUser.roles[0];
-    const updateFields = Object.keys(req.body);
-    const isStatusToggle = updateFields.length === 1 && updateFields.includes("isActive");
-
-    if (currentRole.roleType === "client" && !isStatusToggle) {
+    if (currentRole.roleType === "client") {
       throw createAppError(
-        "Cannot update client user details (Owner, Broker, Investor) via admin API. Only status toggle is allowed.",
+        "Cannot update client users (Owner, Broker, Investor) via admin API",
         403
       );
     }
@@ -378,9 +383,9 @@ const updateUser = asyncHandler(async (req, res, next) => {
       if (salesManagerId !== undefined) {
         const relation = await SalesRelationship.findOne({
           where: { salesExecutiveId: userId },
-          transaction: t
+          transaction: t,
         });
-        
+
         if (relation) {
           if (salesManagerId) {
             await relation.update({ salesManagerId }, { transaction: t });
@@ -567,7 +572,15 @@ const deleteUser = asyncHandler(async (req, res, next) => {
 const getAllUsers = asyncHandler(async (req, res, next) => {
   const requestStartTime = Date.now();
 
-  const { page = 1, limit = 10, roleName, isActive, search, q, query } = req.query;
+  const {
+    page = 1,
+    limit = 10,
+    roleName,
+    isActive,
+    search,
+    q,
+    query,
+  } = req.query;
   const searchTerm = search || q || query;
 
   const requestBodyLog = {
@@ -589,17 +602,22 @@ const getAllUsers = asyncHandler(async (req, res, next) => {
     if (searchTerm) {
       const tokens = searchTerm.trim().split(/\s+/).filter(Boolean);
       if (tokens.length > 0) {
-        whereClause[Op.and] = tokens.map(token => ({
+        whereClause[Op.and] = tokens.map((token) => ({
           [Op.or]: [
             { first_name: { [Op.iLike]: `%${token}%` } },
             { last_name: { [Op.iLike]: `%${token}%` } },
             { email: { [Op.iLike]: `%${token}%` } },
             { mobile_number: { [Op.iLike]: `%${token}%` } },
             sequelize.where(
-              sequelize.fn("concat", sequelize.col("first_name"), " ", sequelize.col("last_name")),
+              sequelize.fn(
+                "concat",
+                sequelize.col("first_name"),
+                " ",
+                sequelize.col("last_name")
+              ),
               { [Op.iLike]: `%${token}%` }
             ),
-          ]
+          ],
         }));
       }
     }
@@ -607,7 +625,9 @@ const getAllUsers = asyncHandler(async (req, res, next) => {
     const roleWhere = {};
     const currentUserRole = req.user?.role || "";
 
-    console.log(`[getAllUsers] Fetching users. Filter: roleName=${roleName}, isActive=${isActive}, currentUserRole=${currentUserRole}`);
+    console.log(
+      `[getAllUsers] Fetching users. Filter: roleName=${roleName}, isActive=${isActive}, currentUserRole=${currentUserRole}`
+    );
 
     // If a specific role is requested, handle it
     if (roleName && roleName !== "All") {
@@ -617,10 +637,10 @@ const getAllUsers = asyncHandler(async (req, res, next) => {
     // Security Constraint: Non-admin users cannot see Admin/Super Admin roles
     if (currentUserRole !== "Admin" && currentUserRole !== "Super Admin") {
       const securityFilter = { [Op.notIn]: ["Admin", "Super Admin"] };
-      
+
       if (roleWhere.roleName) {
         roleWhere.roleName = {
-          [Op.and]: [roleWhere.roleName, securityFilter]
+          [Op.and]: [roleWhere.roleName, securityFilter],
         };
       } else {
         roleWhere.roleName = securityFilter;
@@ -655,7 +675,7 @@ const getAllUsers = asyncHandler(async (req, res, next) => {
           as: "executiveRelationships",
           where: { isActive: true },
           required: false,
-        }
+        },
       ],
       order: [["createdAt", "DESC"]],
       limit: pageSize,
@@ -769,7 +789,13 @@ const getUserById = asyncHandler(async (req, res, next) => {
       requestStartTime
     );
 
-    return sendEncodedResponse(res, 200, true, "User fetched successfully", user);
+    return sendEncodedResponse(
+      res,
+      200,
+      true,
+      "User fetched successfully",
+      user
+    );
   } catch (error) {
     await logRequest(
       req,
@@ -993,9 +1019,9 @@ const reassignProperty = asyncHandler(async (req, res, next) => {
     }
 
     // Check if user has Sales Manager or any Sales Executive sub-role
-    const isSalesPerson = [
-      "Sales Executive - Property Manager",
-    ].includes(req.userRole || req.user.role);
+    const isSalesPerson = ["Sales Executive - Property Manager"].includes(
+      req.userRole || req.user.role
+    );
 
     const isAdminOrManager = ["Admin", "Super Admin", "Sales Manager"].includes(
       req.userRole || req.user.role
@@ -1019,7 +1045,31 @@ const reassignProperty = asyncHandler(async (req, res, next) => {
       throw createAppError("Property is already assigned to this user", 400);
     }
 
-    // Target user can be Sales Manager or any Sales Executive sub-role
+    // Hierarchical assignment rules for property assignment:
+    //   Super Admin  → Admin, Super Admin, Sales Manager, Sales Executive - Property Manager
+    //   Admin        → Admin, Sales Manager, Sales Executive - Property Manager
+    //   Sales Manager → Sales Executive - Property Manager only
+    const assignerRole = req.userRole || req.user.role;
+    let PROPERTY_ASSIGNABLE_ROLES;
+    if (assignerRole === "Super Admin") {
+      PROPERTY_ASSIGNABLE_ROLES = [
+        "Admin",
+        "Super Admin",
+        "Sales Manager",
+        "Sales Executive - Property Manager",
+      ];
+    } else if (assignerRole === "Admin") {
+      PROPERTY_ASSIGNABLE_ROLES = [
+        "Admin",
+        "Sales Manager",
+        "Sales Executive - Property Manager",
+      ];
+    } else {
+      // Sales Manager or Sales Executive - Property Manager
+      PROPERTY_ASSIGNABLE_ROLES = ["Sales Executive - Property Manager"];
+    }
+
+    // Target user can be Admin, Super Admin, Sales Manager, or Sales Executive - Property Manager
     const targetUser = await User.findOne({
       where: { userId, isActive: true },
       attributes: ["userId", "firstName", "lastName", "email"],
@@ -1030,9 +1080,7 @@ const reassignProperty = asyncHandler(async (req, res, next) => {
           through: { attributes: [] },
           attributes: ["roleName"],
           where: {
-            roleName: {
-              [Op.in]: ["Sales Manager", "Sales Executive - Property Manager"],
-            },
+            roleName: { [Op.in]: PROPERTY_ASSIGNABLE_ROLES },
             isActive: true,
           },
           required: true,
@@ -1042,7 +1090,7 @@ const reassignProperty = asyncHandler(async (req, res, next) => {
 
     if (!targetUser) {
       throw createAppError(
-        "Target user not found, inactive, or not a Sales Manager/Executive",
+        `Target user not found, inactive, or cannot be assigned by a ${assignerRole}. Allowed targets: ${PROPERTY_ASSIGNABLE_ROLES.join(", ")}`,
         404
       );
     }
@@ -1089,17 +1137,23 @@ const reassignProperty = asyncHandler(async (req, res, next) => {
         const oldAssignee = await User.findByPk(oldSalesId, {
           attributes: ["firstName", "lastName"],
         });
-        if (oldAssignee) oldAssigneeName = `${oldAssignee.firstName} ${oldAssignee.lastName}`;
+        if (oldAssignee)
+          oldAssigneeName = `${oldAssignee.firstName} ${oldAssignee.lastName}`;
       }
 
       // Fetch admins & super admins
       const admins = await User.findAll({
-        include: [{
-          model: Role,
-          as: "roles",
-          where: { roleName: { [Op.in]: ["Admin", "Super Admin"] }, isActive: true },
-          through: { attributes: [] },
-        }],
+        include: [
+          {
+            model: Role,
+            as: "roles",
+            where: {
+              roleName: { [Op.in]: ["Admin", "Super Admin"] },
+              isActive: true,
+            },
+            through: { attributes: [] },
+          },
+        ],
         attributes: ["userId"],
         raw: true,
       });
@@ -1112,26 +1166,55 @@ const reassignProperty = asyncHandler(async (req, res, next) => {
       });
       if (smRelationship) salesManagerId = smRelationship.salesManagerId;
 
+      // Fetch sales manager of the old assignee (only relevant on reassignment)
+      let oldSalesManagerId = null;
+      if (isReassign && oldSalesId && oldSalesId !== userId) {
+        const oldSmRelationship = await SalesRelationship.findOne({
+          where: { salesExecutiveId: oldSalesId, isActive: true },
+        });
+        if (oldSmRelationship)
+          oldSalesManagerId = oldSmRelationship.salesManagerId;
+      }
+
       const notificationRecords = [];
 
       // Notify new assignee
       const assigneeMessage = isReassign
         ? `Property in ${city} has been reassigned to you by ${assignerName}.`
         : `Property in ${city} has been assigned to you by ${assignerName}.`;
-      notificationRecords.push({ propertyId, userId, notificationText: assigneeMessage });
+      notificationRecords.push({
+        propertyId,
+        userId,
+        notificationText: assigneeMessage,
+      });
       io.to(`user:${userId}`).emit("property:assigned", {
-        propertyId, city, state: result.state, propertyType: result.propertyType,
-        assignedBy: req.user.userId, assignedByName: assignerName, timestamp,
+        propertyId,
+        city,
+        state: result.state,
+        propertyType: result.propertyType,
+        assignedBy: req.user.userId,
+        assignedByName: assignerName,
+        timestamp,
       });
 
       // Notify old assignee (if different from new and from assigner)
       if (oldSalesId && oldSalesId !== userId) {
         const oldMessage = `Property in ${city} has been reassigned to ${newAssigneeName} by ${assignerName}.`;
-        notificationRecords.push({ propertyId, userId: oldSalesId, notificationText: oldMessage });
+        notificationRecords.push({
+          propertyId,
+          userId: oldSalesId,
+          notificationText: oldMessage,
+        });
         io.to(`user:${oldSalesId}`).emit("property:unassigned", {
-          propertyId, city, state: result.state, propertyType: result.propertyType,
-          reassignedBy: req.user.userId, reassignedByName: assignerName,
-          reassignedTo: userId, reassignedToName: newAssigneeName, timestamp,
+          propertyId,
+          city,
+          state: result.state,
+          propertyType: result.propertyType,
+          reassignedBy: req.user.userId,
+          reassignedByName: assignerName,
+          reassignedTo: userId,
+          reassignedToName: newAssigneeName,
+          timestamp,
         });
       }
 
@@ -1141,24 +1224,75 @@ const reassignProperty = asyncHandler(async (req, res, next) => {
         : `Property in ${city} has been assigned to ${newAssigneeName} by ${assignerName}.`;
       for (const adminId of adminIds) {
         if (adminId === req.user.userId) continue; // don't double-notify assigner
-        notificationRecords.push({ propertyId, userId: adminId, notificationText: adminMessage });
+        notificationRecords.push({
+          propertyId,
+          userId: adminId,
+          notificationText: adminMessage,
+        });
         io.to(`user:${adminId}`).emit("property:assigned", {
-          propertyId, city, state: result.state, propertyType: result.propertyType,
-          assignedTo: userId, assignedToName: newAssigneeName,
-          assignedBy: req.user.userId, assignedByName: assignerName, timestamp,
+          propertyId,
+          city,
+          state: result.state,
+          propertyType: result.propertyType,
+          assignedTo: userId,
+          assignedToName: newAssigneeName,
+          assignedBy: req.user.userId,
+          assignedByName: assignerName,
+          timestamp,
         });
       }
 
-      // Notify sales manager (skip if already notified as admin or is the assigner)
-      if (salesManagerId && salesManagerId !== req.user.userId && !adminIds.includes(salesManagerId)) {
+      // Notify sales manager of new assignee (skip if already notified as admin or is the assigner)
+      if (
+        salesManagerId &&
+        salesManagerId !== req.user.userId &&
+        !adminIds.includes(salesManagerId)
+      ) {
         const smMessage = isReassign
           ? `Property in ${city} has been reassigned from ${oldAssigneeName || "unassigned"} to ${newAssigneeName} in your team by ${assignerName}.`
           : `Property in ${city} has been assigned to ${newAssigneeName} in your team by ${assignerName}.`;
-        notificationRecords.push({ propertyId, userId: salesManagerId, notificationText: smMessage });
+        notificationRecords.push({
+          propertyId,
+          userId: salesManagerId,
+          notificationText: smMessage,
+        });
         io.to(`user:${salesManagerId}`).emit("property:assigned", {
-          propertyId, city, state: result.state, propertyType: result.propertyType,
-          assignedTo: userId, assignedToName: newAssigneeName,
-          assignedBy: req.user.userId, assignedByName: assignerName, timestamp,
+          propertyId,
+          city,
+          state: result.state,
+          propertyType: result.propertyType,
+          assignedTo: userId,
+          assignedToName: newAssigneeName,
+          assignedBy: req.user.userId,
+          assignedByName: assignerName,
+          timestamp,
+        });
+      }
+
+      // Notify old sales manager on reassignment (if different from new manager, assigner, and not an admin)
+      if (
+        isReassign &&
+        oldSalesManagerId &&
+        oldSalesManagerId !== req.user.userId &&
+        !adminIds.includes(oldSalesManagerId) &&
+        oldSalesManagerId !== salesManagerId
+      ) {
+        const oldSmMessage = `Property in ${city} has been reassigned from ${oldAssigneeName} to ${newAssigneeName} by ${assignerName}.`;
+        notificationRecords.push({
+          propertyId,
+          userId: oldSalesManagerId,
+          notificationText: oldSmMessage,
+        });
+        io.to(`user:${oldSalesManagerId}`).emit("property:unassigned", {
+          propertyId,
+          city,
+          state: result.state,
+          propertyType: result.propertyType,
+          reassignedBy: req.user.userId,
+          reassignedByName: assignerName,
+          reassignedTo: userId,
+          reassignedToName: newAssigneeName,
+          timestamp,
         });
       }
 
@@ -1233,8 +1367,10 @@ const getAllSalesRelatedActiveUsers = asyncHandler(async (req, res, next) => {
 
     // ✅ Validate roleName
     const validRoles = [
-      "Sales Executive - Property Manager",
+      "Admin",
+      "Super Admin",
       "Sales Manager",
+      "Sales Executive - Property Manager",
       "Sales Executive - Client Dealer",
     ];
 
@@ -1317,242 +1453,241 @@ const getAllSalesRelatedActiveUsers = asyncHandler(async (req, res, next) => {
 // Roles allowed to verify a property
 // ============================================================
 const VERIFICATION_ALLOWED_ROLES = [
-    "Sales Executive - Property Manager",
-    "Sales Manager",
-    "Admin",
-    "Super Admin",
+  "Sales Executive - Property Manager",
+  "Sales Manager",
+  "Admin",
+  "Super Admin",
 ];
 
-
 const recalcIsVerified = (logs) => {
-    if (!logs || logs.length === 0) return "pending";
-    const distinctRoles = new Set(
-        logs.map((l) => l.roleAtVerification).filter(Boolean)
-    );
-    if (distinctRoles.size >= 2) return "completed";
-    return "partial";
+  if (!logs || logs.length === 0) return "pending";
+  const distinctRoles = new Set(
+    logs.map((l) => l.roleAtVerification).filter(Boolean)
+  );
+  if (distinctRoles.size >= 2) return "completed";
+  return "partial";
 };
 
 const verifyProperty = asyncHandler(async (req, res, next) => {
-    const requestStartTime = Date.now();
-    const { propertyId } = req.params;
-    const requestBodyLog = {
-        propertyId,
-        verifiedBy: req.user.userId,
-        userRole: req.userRole,
-    };
+  const requestStartTime = Date.now();
+  const { propertyId } = req.params;
+  const requestBodyLog = {
+    propertyId,
+    verifiedBy: req.user.userId,
+    userRole: req.userRole,
+  };
 
-    try {
-        // 1. Caller's role must be eligible
-        if (!VERIFICATION_ALLOWED_ROLES.includes(req.userRole)) {
-            throw createAppError(
-                "You do not have permission to verify this property",
-                403
-            );
-        }
-
-        // 2. Fetch property
-        const property = await Property.findOne({
-            where: { propertyId, isActive: true },
-            include: [
-                { model: User, as: "owner", attributes: ["firstName", "lastName"] },
-                {
-                    model: User,
-                    as: "salesAgent",
-                    attributes: ["firstName", "lastName"],
-                },
-            ],
-        });
-        if (!property) throw createAppError("Property not found", 404);
-
-        // 3. Sales Executive can only verify their own assigned property
-        if (
-            req.userRole === "Sales Executive - Property Manager" &&
-            property.salesId !== req.user.userId
-        ) {
-            throw createAppError(
-                "You can only verify properties that are assigned to you",
-                403
-            );
-        }
-
-        // 4. Fetch existing verified logs
-        const existingLogs = await PropertyVerificationLog.findAll({
-            where: { propertyId, status: "verified" },
-        });
-
-        // 5. Code-level uniqueness check — one person verifies once
-        const alreadyVerified = existingLogs.some(
-            (log) => log.userId === req.user.userId
-        );
-        if (alreadyVerified) {
-            throw createAppError(
-                "You have already verified this property. Each person can verify only once.",
-                409
-            );
-        }
-
-        // 6. Simulate adding caller → resolve new isVerified
-        // Use stored roleAtVerification for accuracy (role at time of verification)
-        const simulatedLogs = [
-            ...existingLogs,
-            { roleAtVerification: req.userRole },
-        ];
-        const newIsVerified = recalcIsVerified(simulatedLogs);
-        const oldIsVerified = property.isVerified;
-
-        // 7. Persist inside transaction
-        await sequelize.transaction(async (t) => {
-            await PropertyVerificationLog.create(
-                {
-                    propertyId,
-                    userId: req.user.userId,
-                    roleAtVerification: req.userRole,
-                    status: "verified",
-                },
-                { transaction: t }
-            );
-            await property.update({ isVerified: newIsVerified }, { transaction: t });
-            await logUpdate({
-                userId: req.user.userId,
-                entityType: "Property",
-                recordId: propertyId,
-                oldValues: { isVerified: oldIsVerified },
-                newValues: {
-                    isVerified: newIsVerified,
-                    verifiedBy: req.user.userId,
-                    verifierRole: req.userRole,
-                },
-                tableName: "properties",
-                ipAddress: req.ip,
-                userAgent: req.headers["user-agent"],
-                transaction: t,
-            });
-        });
-
-        // 8. Fetch final logs with verifier user+role info
-        const finalLogs = await PropertyVerificationLog.findAll({
-            where: { propertyId, status: "verified" },
-            include: [
-                {
-                    model: User,
-                    as: "verifiedBy",
-                    attributes: ["userId", "firstName", "lastName", "email"],
-                    include: [
-                        {
-                            model: Role,
-                            as: "roles",
-                            through: { attributes: [] },
-                            attributes: ["roleName"],
-                            where: { isActive: true },
-                            required: false,
-                        },
-                    ],
-                },
-            ],
-            order: [["createdAt", "ASC"]],
-        });
-
-        // 9. Socket notifications
-        try {
-            const io = getIO();
-            const ownerName = property.owner
-                ? `${property.owner.firstName} ${property.owner.lastName}`
-                : "Unknown Owner";
-            const message = `${req.user.firstName} ${req.user.lastName} (${req.userRole}) has verified ${ownerName}'s property in ${property.city}`;
-
-            const admins = await User.findAll({
-                include: [
-                    {
-                        model: Role,
-                        as: "roles",
-                        where: { roleName: { [Op.in]: ["Admin", "Super Admin"] } },
-                        through: { attributes: [] },
-                    },
-                ],
-                attributes: ["userId"],
-                raw: true,
-            });
-            const adminIds = admins.map((a) => a.userId);
-
-            let salesManagerId = null;
-            if (property.salesId) {
-                const rel = await SalesRelationship.findOne({
-                    where: { salesExecutiveId: property.salesId, isActive: true },
-                });
-                if (rel) salesManagerId = rel.salesManagerId;
-            }
-
-            const recipients = new Set([...adminIds, salesManagerId]);
-            recipients.delete(null);
-            recipients.delete(undefined);
-
-            const notificationRecords = [];
-            const timestamp = new Date().toISOString();
-            for (const recipientId of recipients) {
-                notificationRecords.push({
-                    propertyId: property.propertyId,
-                    userId: recipientId,
-                    notificationText: message,
-                });
-                io.to(`user:${recipientId}`).emit("property:verified", {
-                    propertyId: property.propertyId,
-                    message,
-                    isVerified: newIsVerified,
-                    timestamp,
-                });
-            }
-            if (notificationRecords.length > 0) {
-                await PropertyNotificationEvent.bulkCreate(notificationRecords);
-            }
-        } catch (err) {
-            console.error("Notification failed in verifyProperty:", err.message);
-        }
-
-        await logRequest(
-            req,
-            {
-                userId: req.user.userId,
-                status: 200,
-                body: { success: true, message: "Property verified successfully" },
-                requestBodyLog,
-            },
-            requestStartTime
-        );
-
-        return sendEncodedResponse(
-            res,
-            200,
-            true,
-            `Property verification recorded. Status is now: ${newIsVerified}`,
-            {
-                propertyId: property.propertyId,
-                isVerified: newIsVerified,
-                verificationLogs: finalLogs.map((log) => ({
-                    id: log.id,
-                    userId: log.verifiedBy?.userId,
-                    name: `${log.verifiedBy?.firstName} ${log.verifiedBy?.lastName}`,
-                    email: log.verifiedBy?.email,
-                    role: log.verifiedBy?.roles?.[0]?.roleName || null,
-                    verifiedAt: log.createdAt,
-                })),
-            }
-        );
-    } catch (error) {
-        await logRequest(
-            req,
-            {
-                userId: req.user?.userId || null,
-                status: error.statusCode || 500,
-                body: { success: false, message: error.message },
-                requestBodyLog,
-                error: error.message,
-                stackTrace: error.stack,
-            },
-            requestStartTime
-        );
-        return next(error);
+  try {
+    // 1. Caller's role must be eligible
+    if (!VERIFICATION_ALLOWED_ROLES.includes(req.userRole)) {
+      throw createAppError(
+        "You do not have permission to verify this property",
+        403
+      );
     }
+
+    // 2. Fetch property
+    const property = await Property.findOne({
+      where: { propertyId, isActive: true },
+      include: [
+        { model: User, as: "owner", attributes: ["firstName", "lastName"] },
+        {
+          model: User,
+          as: "salesAgent",
+          attributes: ["firstName", "lastName"],
+        },
+      ],
+    });
+    if (!property) throw createAppError("Property not found", 404);
+
+    // 3. Sales Executive can only verify their own assigned property
+    if (
+      req.userRole === "Sales Executive - Property Manager" &&
+      property.salesId !== req.user.userId
+    ) {
+      throw createAppError(
+        "You can only verify properties that are assigned to you",
+        403
+      );
+    }
+
+    // 4. Fetch existing verified logs
+    const existingLogs = await PropertyVerificationLog.findAll({
+      where: { propertyId, status: "verified" },
+    });
+
+    // 5. Code-level uniqueness check — one person verifies once
+    const alreadyVerified = existingLogs.some(
+      (log) => log.userId === req.user.userId
+    );
+    if (alreadyVerified) {
+      throw createAppError(
+        "You have already verified this property. Each person can verify only once.",
+        409
+      );
+    }
+
+    // 6. Simulate adding caller → resolve new isVerified
+    // Use stored roleAtVerification for accuracy (role at time of verification)
+    const simulatedLogs = [
+      ...existingLogs,
+      { roleAtVerification: req.userRole },
+    ];
+    const newIsVerified = recalcIsVerified(simulatedLogs);
+    const oldIsVerified = property.isVerified;
+
+    // 7. Persist inside transaction
+    await sequelize.transaction(async (t) => {
+      await PropertyVerificationLog.create(
+        {
+          propertyId,
+          userId: req.user.userId,
+          roleAtVerification: req.userRole,
+          status: "verified",
+        },
+        { transaction: t }
+      );
+      await property.update({ isVerified: newIsVerified }, { transaction: t });
+      await logUpdate({
+        userId: req.user.userId,
+        entityType: "Property",
+        recordId: propertyId,
+        oldValues: { isVerified: oldIsVerified },
+        newValues: {
+          isVerified: newIsVerified,
+          verifiedBy: req.user.userId,
+          verifierRole: req.userRole,
+        },
+        tableName: "properties",
+        ipAddress: req.ip,
+        userAgent: req.headers["user-agent"],
+        transaction: t,
+      });
+    });
+
+    // 8. Fetch final logs with verifier user+role info
+    const finalLogs = await PropertyVerificationLog.findAll({
+      where: { propertyId, status: "verified" },
+      include: [
+        {
+          model: User,
+          as: "verifiedBy",
+          attributes: ["userId", "firstName", "lastName", "email"],
+          include: [
+            {
+              model: Role,
+              as: "roles",
+              through: { attributes: [] },
+              attributes: ["roleName"],
+              where: { isActive: true },
+              required: false,
+            },
+          ],
+        },
+      ],
+      order: [["createdAt", "ASC"]],
+    });
+
+    // 9. Socket notifications
+    try {
+      const io = getIO();
+      const ownerName = property.owner
+        ? `${property.owner.firstName} ${property.owner.lastName}`
+        : "Unknown Owner";
+      const message = `${req.user.firstName} ${req.user.lastName} (${req.userRole}) has verified ${ownerName}'s property in ${property.city}`;
+
+      const admins = await User.findAll({
+        include: [
+          {
+            model: Role,
+            as: "roles",
+            where: { roleName: { [Op.in]: ["Admin", "Super Admin"] } },
+            through: { attributes: [] },
+          },
+        ],
+        attributes: ["userId"],
+        raw: true,
+      });
+      const adminIds = admins.map((a) => a.userId);
+
+      let salesManagerId = null;
+      if (property.salesId) {
+        const rel = await SalesRelationship.findOne({
+          where: { salesExecutiveId: property.salesId, isActive: true },
+        });
+        if (rel) salesManagerId = rel.salesManagerId;
+      }
+
+      const recipients = new Set([...adminIds, salesManagerId]);
+      recipients.delete(null);
+      recipients.delete(undefined);
+
+      const notificationRecords = [];
+      const timestamp = new Date().toISOString();
+      for (const recipientId of recipients) {
+        notificationRecords.push({
+          propertyId: property.propertyId,
+          userId: recipientId,
+          notificationText: message,
+        });
+        io.to(`user:${recipientId}`).emit("property:verified", {
+          propertyId: property.propertyId,
+          message,
+          isVerified: newIsVerified,
+          timestamp,
+        });
+      }
+      if (notificationRecords.length > 0) {
+        await PropertyNotificationEvent.bulkCreate(notificationRecords);
+      }
+    } catch (err) {
+      console.error("Notification failed in verifyProperty:", err.message);
+    }
+
+    await logRequest(
+      req,
+      {
+        userId: req.user.userId,
+        status: 200,
+        body: { success: true, message: "Property verified successfully" },
+        requestBodyLog,
+      },
+      requestStartTime
+    );
+
+    return sendEncodedResponse(
+      res,
+      200,
+      true,
+      `Property verification recorded. Status is now: ${newIsVerified}`,
+      {
+        propertyId: property.propertyId,
+        isVerified: newIsVerified,
+        verificationLogs: finalLogs.map((log) => ({
+          id: log.id,
+          userId: log.verifiedBy?.userId,
+          name: `${log.verifiedBy?.firstName} ${log.verifiedBy?.lastName}`,
+          email: log.verifiedBy?.email,
+          role: log.verifiedBy?.roles?.[0]?.roleName || null,
+          verifiedAt: log.createdAt,
+        })),
+      }
+    );
+  } catch (error) {
+    await logRequest(
+      req,
+      {
+        userId: req.user?.userId || null,
+        status: error.statusCode || 500,
+        body: { success: false, message: error.message },
+        requestBodyLog,
+        error: error.message,
+        stackTrace: error.stack,
+      },
+      requestStartTime
+    );
+    return next(error);
+  }
 });
 
 // -----------------------------------------------------------
@@ -1560,180 +1695,186 @@ const verifyProperty = asyncHandler(async (req, res, next) => {
 // Removes the caller's own verification log and recalculates isVerified.
 // -----------------------------------------------------------
 const unverifyProperty = asyncHandler(async (req, res, next) => {
-    const requestStartTime = Date.now();
-    const { propertyId } = req.params;
-    const requestBodyLog = {
-        propertyId,
-        unverifiedBy: req.user.userId,
-        userRole: req.userRole,
-    };
+  const requestStartTime = Date.now();
+  const { propertyId } = req.params;
+  const requestBodyLog = {
+    propertyId,
+    unverifiedBy: req.user.userId,
+    userRole: req.userRole,
+  };
 
-    try {
-        const property = await Property.findOne({
-            where: { propertyId, isActive: true },
-        });
-        if (!property) throw createAppError("Property not found", 404);
+  try {
+    const property = await Property.findOne({
+      where: { propertyId, isActive: true },
+    });
+    if (!property) throw createAppError("Property not found", 404);
 
-        const myLog = await PropertyVerificationLog.findOne({
-            where: { propertyId, userId: req.user.userId, status: "verified" },
-        });
-        if (!myLog) {
-            throw createAppError(
-                "You have not verified this property. Nothing to remove.",
-                404
-            );
-        }
-
-        const oldIsVerified = property.isVerified;
-        let finalIsVerified = "pending";
-
-        await sequelize.transaction(async (t) => {
-            await myLog.destroy({ transaction: t });
-
-            const remainingLogs = await PropertyVerificationLog.findAll({
-                where: { propertyId, status: "verified" },
-                transaction: t,
-            });
-            finalIsVerified = recalcIsVerified(remainingLogs);
-
-            await property.update({ isVerified: finalIsVerified }, { transaction: t });
-            await logUpdate({
-                userId: req.user.userId,
-                entityType: "Property",
-                recordId: propertyId,
-                oldValues: { isVerified: oldIsVerified },
-                newValues: { isVerified: finalIsVerified, unverifiedBy: req.user.userId },
-                tableName: "properties",
-                ipAddress: req.ip,
-                userAgent: req.headers["user-agent"],
-                transaction: t,
-            });
-        });
-
-        const finalLogs = await PropertyVerificationLog.findAll({
-            where: { propertyId, status: "verified" },
-            include: [
-                {
-                    model: User,
-                    as: "verifiedBy",
-                    attributes: ["userId", "firstName", "lastName", "email"],
-                    include: [
-                        {
-                            model: Role,
-                            as: "roles",
-                            through: { attributes: [] },
-                            attributes: ["roleName"],
-                            where: { isActive: true },
-                            required: false,
-                        },
-                    ],
-                },
-            ],
-            order: [["createdAt", "ASC"]],
-        });
-
-        await logRequest(
-            req,
-            {
-                userId: req.user.userId,
-                status: 200,
-                body: { success: true, message: "Property un-verified successfully" },
-                requestBodyLog,
-            },
-            requestStartTime
-        );
-
-        return sendEncodedResponse(
-            res,
-            200,
-            true,
-            `Verification removed. Property status is now: ${finalIsVerified}`,
-            {
-                propertyId: property.propertyId,
-                isVerified: finalIsVerified,
-                verificationLogs: finalLogs.map((log) => ({
-                    id: log.id,
-                    userId: log.verifiedBy?.userId,
-                    name: `${log.verifiedBy?.firstName} ${log.verifiedBy?.lastName}`,
-                    email: log.verifiedBy?.email,
-                    role: log.verifiedBy?.roles?.[0]?.roleName || null,
-                    verifiedAt: log.createdAt,
-                })),
-            }
-        );
-    } catch (error) {
-        await logRequest(
-            req,
-            {
-                userId: req.user?.userId || null,
-                status: error.statusCode || 500,
-                body: { success: false, message: error.message },
-                requestBodyLog,
-                error: error.message,
-                stackTrace: error.stack,
-            },
-            requestStartTime
-        );
-        return next(error);
+    const myLog = await PropertyVerificationLog.findOne({
+      where: { propertyId, userId: req.user.userId, status: "verified" },
+    });
+    if (!myLog) {
+      throw createAppError(
+        "You have not verified this property. Nothing to remove.",
+        404
+      );
     }
+
+    const oldIsVerified = property.isVerified;
+    let finalIsVerified = "pending";
+
+    await sequelize.transaction(async (t) => {
+      await myLog.destroy({ transaction: t });
+
+      const remainingLogs = await PropertyVerificationLog.findAll({
+        where: { propertyId, status: "verified" },
+        transaction: t,
+      });
+      finalIsVerified = recalcIsVerified(remainingLogs);
+
+      await property.update(
+        { isVerified: finalIsVerified },
+        { transaction: t }
+      );
+      await logUpdate({
+        userId: req.user.userId,
+        entityType: "Property",
+        recordId: propertyId,
+        oldValues: { isVerified: oldIsVerified },
+        newValues: {
+          isVerified: finalIsVerified,
+          unverifiedBy: req.user.userId,
+        },
+        tableName: "properties",
+        ipAddress: req.ip,
+        userAgent: req.headers["user-agent"],
+        transaction: t,
+      });
+    });
+
+    const finalLogs = await PropertyVerificationLog.findAll({
+      where: { propertyId, status: "verified" },
+      include: [
+        {
+          model: User,
+          as: "verifiedBy",
+          attributes: ["userId", "firstName", "lastName", "email"],
+          include: [
+            {
+              model: Role,
+              as: "roles",
+              through: { attributes: [] },
+              attributes: ["roleName"],
+              where: { isActive: true },
+              required: false,
+            },
+          ],
+        },
+      ],
+      order: [["createdAt", "ASC"]],
+    });
+
+    await logRequest(
+      req,
+      {
+        userId: req.user.userId,
+        status: 200,
+        body: { success: true, message: "Property un-verified successfully" },
+        requestBodyLog,
+      },
+      requestStartTime
+    );
+
+    return sendEncodedResponse(
+      res,
+      200,
+      true,
+      `Verification removed. Property status is now: ${finalIsVerified}`,
+      {
+        propertyId: property.propertyId,
+        isVerified: finalIsVerified,
+        verificationLogs: finalLogs.map((log) => ({
+          id: log.id,
+          userId: log.verifiedBy?.userId,
+          name: `${log.verifiedBy?.firstName} ${log.verifiedBy?.lastName}`,
+          email: log.verifiedBy?.email,
+          role: log.verifiedBy?.roles?.[0]?.roleName || null,
+          verifiedAt: log.createdAt,
+        })),
+      }
+    );
+  } catch (error) {
+    await logRequest(
+      req,
+      {
+        userId: req.user?.userId || null,
+        status: error.statusCode || 500,
+        body: { success: false, message: error.message },
+        requestBodyLog,
+        error: error.message,
+        stackTrace: error.stack,
+      },
+      requestStartTime
+    );
+    return next(error);
+  }
 });
 
 // -----------------------------------------------------------
 // GET /admin/users/sales-managers
 // -----------------------------------------------------------
 const getAllSalesManagers = asyncHandler(async (req, res, next) => {
-    const requestStartTime = Date.now();
+  const requestStartTime = Date.now();
 
-    try {
-        const salesManagers = await User.findAll({
-            where: { isActive: true },
-            attributes: ["userId", "firstName", "lastName", "email"],
-            include: [
-                {
-                    model: Role,
-                    as: "roles",
-                    where: { roleName: "Sales Manager", isActive: true },
-                    through: { attributes: [] },
-                    attributes: [],
-                },
-            ],
-            order: [["firstName", "ASC"]],
-        });
+  try {
+    const salesManagers = await User.findAll({
+      where: { isActive: true },
+      attributes: ["userId", "firstName", "lastName", "email"],
+      include: [
+        {
+          model: Role,
+          as: "roles",
+          where: { roleName: "Sales Manager", isActive: true },
+          through: { attributes: [] },
+          attributes: [],
+        },
+      ],
+      order: [["firstName", "ASC"]],
+    });
 
-        await logRequest(
-            req,
-            {
-                userId: req.user.userId,
-                status: 200,
-                body: {
-                    success: true,
-                    message: "Sales Managers fetched successfully",
-                    count: salesManagers.length,
-                },
-            },
-            requestStartTime
-        );
+    await logRequest(
+      req,
+      {
+        userId: req.user.userId,
+        status: 200,
+        body: {
+          success: true,
+          message: "Sales Managers fetched successfully",
+          count: salesManagers.length,
+        },
+      },
+      requestStartTime
+    );
 
-        return sendEncodedResponse(
-            res,
-            200,
-            true,
-            "Sales Managers fetched successfully",
-            salesManagers
-        );
-    } catch (error) {
-        await logRequest(
-            req,
-            {
-                userId: req.user.userId,
-                status: 500,
-                body: { success: false, message: error.message },
-                error: error.message,
-            },
-            requestStartTime
-        );
-        return next(error);
-    }
+    return sendEncodedResponse(
+      res,
+      200,
+      true,
+      "Sales Managers fetched successfully",
+      salesManagers
+    );
+  } catch (error) {
+    await logRequest(
+      req,
+      {
+        userId: req.user.userId,
+        status: 500,
+        body: { success: false, message: error.message },
+        error: error.message,
+      },
+      requestStartTime
+    );
+    return next(error);
+  }
 });
 
 // ============================================================
@@ -1743,481 +1884,598 @@ const getAllSalesManagers = asyncHandler(async (req, res, next) => {
 const { attachSignedUrls } = require("../utils/gcsHelper");
 
 const adminGetAllProperties = asyncHandler(async (req, res, next) => {
-    const requestStartTime = Date.now();
-    const {
-        page = 1,
-        limit = 10,
-        isVerified,
-        city,
-        state,
-        propertyType,
-        userId,
-        ownerId,
-        brokerId,
-        sortBy = "createdAt",
-        sortOrder = "DESC",
-    } = req.query;
+  const requestStartTime = Date.now();
+  const {
+    page = 1,
+    limit = 10,
+    isVerified,
+    city,
+    state,
+    propertyType,
+    salesExecutiveId,
+    salesManagerId,
+    clientDealerId,
+    sortBy = "createdAt",
+    sortOrder = "DESC",
+  } = req.query;
 
-    const requestBodyLog = {
-        page,
-        limit,
-        filters: { isVerified, city, state, propertyType, userId, ownerId, brokerId },
-    };
+  const requestBodyLog = {
+    page,
+    limit,
+    filters: {
+      isVerified,
+      city,
+      state,
+      propertyType,
+      salesExecutiveId,
+      salesManagerId,
+      clientDealerId,
+    },
+  };
 
-    try {
-        const whereClause = { isActive: true };
-        if (isVerified) whereClause.isVerified = isVerified;
-        if (city) whereClause.city = { [Op.iLike]: `%${city}%` };
-        if (state) whereClause.state = { [Op.iLike]: `%${state}%` };
-        if (propertyType) whereClause.propertyType = propertyType;
-        
-        if (userId) {
-            whereClause[Op.or] = [{ ownerId: userId }, { brokerId: userId }];
-        } else {
-            if (ownerId) whereClause.ownerId = ownerId;
-            if (brokerId) whereClause.brokerId = brokerId;
-        }
+  try {
+    const whereClause = { isActive: true };
+    if (isVerified) whereClause.isVerified = isVerified;
+    if (city) whereClause.city = { [Op.iLike]: `%${city}%` };
+    if (state) whereClause.state = { [Op.iLike]: `%${state}%` };
+    if (propertyType) whereClause.propertyType = propertyType;
 
-        const pageNumber = parseInt(page);
-        const pageSize = parseInt(limit);
-        const offset = (pageNumber - 1) * pageSize;
+    // Filter by a specific Sales Executive - Property Manager
+    if (salesExecutiveId) {
+      whereClause.salesId = salesExecutiveId;
+    }
 
-        const { count, rows: properties } = await Property.findAndCountAll({
-            where: whereClause,
-            include: [
-                {
-                    model: Amenity,
-                    as: "amenities",
-                    attributes: ["amenityId", "amenityName"],
-                    through: { attributes: [] },
-                    where: { isActive: true },
-                    required: false,
-                },
-                {
-                    model: PropertyMedia,
-                    as: "media",
-                    attributes: ["mediaId", "mediaType", "fileUrl"],
-                    required: false,
-                    limit: 1,
-                    separate: true,
-                },
-                {
-                    model: Caretaker,
-                    as: "caretaker",
-                    attributes: ["caretakerId", "caretakerName"],
-                    where: { isActive: true },
-                    required: false,
-                },
-                {
-                    model: User,
-                    as: "owner",
-                    attributes: ["userId", "firstName", "lastName", "email"],
-                    required: false,
-                },
-                {
-                    model: User,
-                    as: "broker",
-                    attributes: ["userId", "firstName", "lastName", "email"],
-                    required: false,
-                },
-                {
-                    model: User,
-                    as: "salesAgent",
-                    attributes: ["userId", "firstName", "lastName", "email", "mobileNumber"],
-                    required: false,
-                },
-                {
-                    model: PropertyVerificationLog,
-                    as: "verificationLogs",
-                    attributes: ["id", "userId", "status", "roleAtVerification", "createdAt"],
-                    where: { status: "verified" },
-                    required: false,
-                    include: [
-                        {
-                            model: User,
-                            as: "verifiedBy",
-                            attributes: ["userId", "firstName", "lastName", "email"],
-                            include: [
-                                {
-                                    model: Role,
-                                    as: "roles",
-                                    through: { attributes: [] },
-                                    attributes: ["roleName"],
-                                    where: { isActive: true },
-                                    required: false,
-                                },
-                            ],
-                        },
-                    ],
-                },
-            ],
-            order: [[sortBy, sortOrder.toUpperCase()]],
-            limit: pageSize,
-            offset,
-            distinct: true,
-        });
+    // Filter by Sales Manager — expand to all executives in their team
+    if (salesManagerId) {
+      const relationships = await SalesRelationship.findAll({
+        where: { salesManagerId, isActive: true },
+        attributes: ["salesExecutiveId"],
+        raw: true,
+      });
+      const executiveIds = relationships.map((r) => r.salesExecutiveId);
+      // Include the manager's own salesId as well
+      executiveIds.push(salesManagerId);
+      whereClause.salesId = { [Op.in]: executiveIds };
+    }
 
-        const propertiesData = await Promise.all(
-            properties.map(async (property) => {
-                const d = property.toJSON();
-                if (d.media && d.media.length > 0) {
-                    d.media = await attachSignedUrls(d.media);
-                }
-                d.verificationLogs = (d.verificationLogs || []).map((log) => ({
-                    id: log.id,
-                    userId: log.verifiedBy?.userId,
-                    name: `${log.verifiedBy?.firstName} ${log.verifiedBy?.lastName}`,
-                    email: log.verifiedBy?.email,
-                    role: log.roleAtVerification || log.verifiedBy?.roles?.[0]?.roleName || null,
-                    verifiedAt: log.createdAt,
-                }));
-                return d;
-            })
-        );
-
-        await logRequest(
-            req,
-            {
-                userId: req.user.userId,
-                status: 200,
-                body: { success: true, message: "Properties fetched successfully", count },
-                requestBodyLog,
-            },
-            requestStartTime
-        );
-
+    // Filter by Client Dealer — find properties that have inquiries assigned to them
+    if (clientDealerId) {
+      const inquiries = await PropertyInquiry.findAll({
+        where: { assignedTo: clientDealerId },
+        attributes: ["propertyId"],
+        raw: true,
+      });
+      const propertyIds = [...new Set(inquiries.map((i) => i.propertyId))];
+      if (propertyIds.length === 0) {
+        // No properties linked to this dealer — return empty immediately
         return sendEncodedResponse(
-            res,
-            200,
-            true,
-            "Properties fetched successfully",
-            propertiesData,
-            {
-                pagination: {
-                    currentPage: pageNumber,
-                    pageSize,
-                    totalItems: count,
-                    totalPages: Math.ceil(count / pageSize),
-                    hasNextPage: pageNumber < Math.ceil(count / pageSize),
-                    hasPrevPage: pageNumber > 1,
-                },
-            }
-        );
-    } catch (error) {
-        await logRequest(
-            req,
-            {
-                userId: req.user?.userId || null,
-                status: error.statusCode || 500,
-                body: { success: false, message: error.message },
-                requestBodyLog,
-                error: error.message,
-                stackTrace: error.stack,
+          res,
+          200,
+          true,
+          "Properties fetched successfully",
+          [],
+          {
+            pagination: {
+              currentPage: 1,
+              pageSize: parseInt(limit),
+              totalItems: 0,
+              totalPages: 0,
+              hasNextPage: false,
+              hasPrevPage: false,
             },
-            requestStartTime
+          }
         );
-        return next(error);
+      }
+      whereClause.propertyId = { [Op.in]: propertyIds };
     }
-});
-
-const adminGetPropertyById = asyncHandler(async (req, res, next) => {
-    const requestStartTime = Date.now();
-    const { propertyId } = req.params;
-    const requestBodyLog = { propertyId, requestedBy: req.user.userId };
-
-    try {
-        const property = await Property.findOne({
-            where: { propertyId, isActive: true },
-            include: [
-                {
-                    model: Amenity,
-                    as: "amenities",
-                    attributes: ["amenityId", "amenityName"],
-                    through: { attributes: [] },
-                    where: { isActive: true },
-                    required: false,
-                },
-                {
-                    model: PropertyMedia,
-                    as: "media",
-                    attributes: ["mediaId", "mediaType", "fileUrl"],
-                    required: false,
-                },
-                {
-                    model: Caretaker,
-                    as: "caretaker",
-                    attributes: ["caretakerId", "caretakerName", "caretakerType", "contactInfo"],
-                    where: { isActive: true },
-                    required: false,
-                },
-                {
-                    model: PropertyConnectivity,
-                    as: "connectivity",
-                    attributes: ["connectivityId", "connectivityType", "name", "distanceKm"],
-                    required: false,
-                },
-                {
-                    model: PropertyCertification,
-                    as: "certifications",
-                    attributes: ["certificationType", "certificationDetails"],
-                    required: false,
-                },
-                {
-                    model: User,
-                    as: "owner",
-                    attributes: ["userId", "firstName", "lastName", "email"],
-                    required: false,
-                },
-                {
-                    model: User,
-                    as: "broker",
-                    attributes: ["userId", "firstName", "lastName", "email"],
-                    required: false,
-                },
-                {
-                    model: User,
-                    as: "salesAgent",
-                    attributes: ["userId", "firstName", "lastName", "email", "mobileNumber"],
-                    required: false,
-                },
-                {
-                    model: PropertyVerificationLog,
-                    as: "verificationLogs",
-                    attributes: ["id", "userId", "status", "roleAtVerification", "createdAt"],
-                    where: { status: "verified" },
-                    required: false,
-                    include: [
-                        {
-                            model: User,
-                            as: "verifiedBy",
-                            attributes: ["userId", "firstName", "lastName", "email"],
-                            include: [
-                                {
-                                    model: Role,
-                                    as: "roles",
-                                    through: { attributes: [] },
-                                    attributes: ["roleName"],
-                                    where: { isActive: true },
-                                    required: false,
-                                },
-                            ],
-                        },
-                    ],
-                },
-            ],
-        });
-
-        if (!property) throw createAppError("Property not found", 404);
-
-        const d = property.toJSON();
-        if (d.media && d.media.length > 0) {
-            d.media = await attachSignedUrls(d.media);
-        }
-        if (d.leaseEndDate) {
-            const diffTime = new Date(d.leaseEndDate) - new Date();
-            d.tenureLeftYears = Math.max(
-                0,
-                parseFloat((diffTime / (1000 * 60 * 60 * 24 * 365.25)).toFixed(2))
-            );
-        } else {
-            d.tenureLeftYears = null;
-        }
-
-        d.verificationLogs = (d.verificationLogs || []).map((log) => ({
-            id: log.id,
-            userId: log.verifiedBy?.userId,
-            name: `${log.verifiedBy?.firstName} ${log.verifiedBy?.lastName}`,
-            email: log.verifiedBy?.email,
-            role: log.roleAtVerification || log.verifiedBy?.roles?.[0]?.roleName || null,
-            verifiedAt: log.createdAt,
-        }));
-
-        await logRequest(
-            req,
-            {
-                userId: req.user.userId,
-                status: 200,
-                body: { success: true, message: "Property fetched successfully" },
-                requestBodyLog,
-            },
-            requestStartTime
-        );
-
-        return sendEncodedResponse(res, 200, true, "Property fetched successfully", d);
-    } catch (error) {
-        await logRequest(
-            req,
-            {
-                userId: req.user?.userId || null,
-                status: error.statusCode || 500,
-                body: { success: false, message: error.message },
-                requestBodyLog,
-                error: error.message,
-                stackTrace: error.stack,
-            },
-            requestStartTime
-        );
-        return next(error);
-    }
-});
-
-const getAdminNotifications = asyncHandler(async (req, res, next) => {
-    const requestStartTime = Date.now();
-    const userId = req.user.userId;
-    const { page = 1, limit = 20 } = req.query;
 
     const pageNumber = parseInt(page);
     const pageSize = parseInt(limit);
     const offset = (pageNumber - 1) * pageSize;
 
-    const requestBodyLog = {
-        userId,
-        page,
-        limit,
-        role: req.userRole
-    };
-
-    try {
-        const { count, rows: notifications } = await PropertyNotificationEvent.findAndCountAll({
-            where: { userId, is_deleted: false },
-            include: [
+    const { count, rows: properties } = await Property.findAndCountAll({
+      where: whereClause,
+      include: [
+        {
+          model: Amenity,
+          as: "amenities",
+          attributes: ["amenityId", "amenityName"],
+          through: { attributes: [] },
+          where: { isActive: true },
+          required: false,
+        },
+        {
+          model: PropertyMedia,
+          as: "media",
+          attributes: ["mediaId", "mediaType", "fileUrl"],
+          required: false,
+          limit: 1,
+          separate: true,
+        },
+        {
+          model: Caretaker,
+          as: "caretaker",
+          attributes: ["caretakerId", "caretakerName"],
+          where: { isActive: true },
+          required: false,
+        },
+        {
+          model: User,
+          as: "owner",
+          attributes: ["userId", "firstName", "lastName", "email"],
+          required: false,
+        },
+        {
+          model: User,
+          as: "broker",
+          attributes: ["userId", "firstName", "lastName", "email"],
+          required: false,
+        },
+        {
+          model: User,
+          as: "salesAgent",
+          attributes: [
+            "userId",
+            "firstName",
+            "lastName",
+            "email",
+            "mobileNumber",
+          ],
+          required: false,
+        },
+        {
+          model: PropertyVerificationLog,
+          as: "verificationLogs",
+          attributes: [
+            "id",
+            "userId",
+            "status",
+            "roleAtVerification",
+            "createdAt",
+          ],
+          where: { status: "verified" },
+          required: false,
+          include: [
+            {
+              model: User,
+              as: "verifiedBy",
+              attributes: ["userId", "firstName", "lastName", "email"],
+              include: [
                 {
-                    model: Property,
-                    as: "property",
-                    attributes: ["propertyId", "city", "state", "propertyType"],
-                    required: false
-                }
-            ],
-            order: [["createdAt", "DESC"]],
-            limit: pageSize,
-            offset: offset,
-        });
-
-        const totalPages = Math.ceil(count / pageSize);
-
-        await logRequest(
-            req,
-            {
-                userId,
-                status: 200,
-                body: { success: true, message: "Notifications fetched successfully", count: notifications.length },
-                requestBodyLog,
-            },
-            requestStartTime
-        );
-
-        return sendEncodedResponse(
-            res,
-            200,
-            true,
-            "Notifications fetched successfully",
-            notifications,
-            {
-                pagination: {
-                    currentPage: pageNumber,
-                    pageSize,
-                    totalItems: count,
-                    totalPages,
-                    hasNextPage: pageNumber < totalPages,
-                    hasPrevPage: pageNumber > 1,
+                  model: Role,
+                  as: "roles",
+                  through: { attributes: [] },
+                  attributes: ["roleName"],
+                  where: { isActive: true },
+                  required: false,
                 },
-            }
-        );
-    } catch (error) {
-        return next(error);
+              ],
+            },
+          ],
+        },
+      ],
+      order: [[sortBy, sortOrder.toUpperCase()]],
+      limit: pageSize,
+      offset,
+      distinct: true,
+    });
+
+    const propertiesData = await Promise.all(
+      properties.map(async (property) => {
+        const d = property.toJSON();
+        if (d.media && d.media.length > 0) {
+          d.media = await attachSignedUrls(d.media);
+        }
+        d.verificationLogs = (d.verificationLogs || []).map((log) => ({
+          id: log.id,
+          userId: log.verifiedBy?.userId,
+          name: `${log.verifiedBy?.firstName} ${log.verifiedBy?.lastName}`,
+          email: log.verifiedBy?.email,
+          role:
+            log.roleAtVerification ||
+            log.verifiedBy?.roles?.[0]?.roleName ||
+            null,
+          verifiedAt: log.createdAt,
+        }));
+        return d;
+      })
+    );
+
+    await logRequest(
+      req,
+      {
+        userId: req.user.userId,
+        status: 200,
+        body: {
+          success: true,
+          message: "Properties fetched successfully",
+          count,
+        },
+        requestBodyLog,
+      },
+      requestStartTime
+    );
+
+    return sendEncodedResponse(
+      res,
+      200,
+      true,
+      "Properties fetched successfully",
+      propertiesData,
+      {
+        pagination: {
+          currentPage: pageNumber,
+          pageSize,
+          totalItems: count,
+          totalPages: Math.ceil(count / pageSize),
+          hasNextPage: pageNumber < Math.ceil(count / pageSize),
+          hasPrevPage: pageNumber > 1,
+        },
+      }
+    );
+  } catch (error) {
+    await logRequest(
+      req,
+      {
+        userId: req.user?.userId || null,
+        status: error.statusCode || 500,
+        body: { success: false, message: error.message },
+        requestBodyLog,
+        error: error.message,
+        stackTrace: error.stack,
+      },
+      requestStartTime
+    );
+    return next(error);
+  }
+});
+
+const adminGetPropertyById = asyncHandler(async (req, res, next) => {
+  const requestStartTime = Date.now();
+  const { propertyId } = req.params;
+  const requestBodyLog = { propertyId, requestedBy: req.user.userId };
+
+  try {
+    const property = await Property.findOne({
+      where: { propertyId, isActive: true },
+      include: [
+        {
+          model: Amenity,
+          as: "amenities",
+          attributes: ["amenityId", "amenityName"],
+          through: { attributes: [] },
+          where: { isActive: true },
+          required: false,
+        },
+        {
+          model: PropertyMedia,
+          as: "media",
+          attributes: ["mediaId", "mediaType", "fileUrl"],
+          required: false,
+        },
+        {
+          model: Caretaker,
+          as: "caretaker",
+          attributes: [
+            "caretakerId",
+            "caretakerName",
+            "caretakerType",
+            "contactInfo",
+          ],
+          where: { isActive: true },
+          required: false,
+        },
+        {
+          model: PropertyConnectivity,
+          as: "connectivity",
+          attributes: [
+            "connectivityId",
+            "connectivityType",
+            "name",
+            "distanceKm",
+          ],
+          required: false,
+        },
+        {
+          model: PropertyCertification,
+          as: "certifications",
+          attributes: ["certificationType", "certificationDetails"],
+          required: false,
+        },
+        {
+          model: User,
+          as: "owner",
+          attributes: ["userId", "firstName", "lastName", "email"],
+          required: false,
+        },
+        {
+          model: User,
+          as: "broker",
+          attributes: ["userId", "firstName", "lastName", "email"],
+          required: false,
+        },
+        {
+          model: User,
+          as: "salesAgent",
+          attributes: [
+            "userId",
+            "firstName",
+            "lastName",
+            "email",
+            "mobileNumber",
+          ],
+          required: false,
+        },
+        {
+          model: PropertyVerificationLog,
+          as: "verificationLogs",
+          attributes: [
+            "id",
+            "userId",
+            "status",
+            "roleAtVerification",
+            "createdAt",
+          ],
+          where: { status: "verified" },
+          required: false,
+          include: [
+            {
+              model: User,
+              as: "verifiedBy",
+              attributes: ["userId", "firstName", "lastName", "email"],
+              include: [
+                {
+                  model: Role,
+                  as: "roles",
+                  through: { attributes: [] },
+                  attributes: ["roleName"],
+                  where: { isActive: true },
+                  required: false,
+                },
+              ],
+            },
+          ],
+        },
+      ],
+    });
+
+    if (!property) throw createAppError("Property not found", 404);
+
+    const d = property.toJSON();
+    if (d.media && d.media.length > 0) {
+      d.media = await attachSignedUrls(d.media);
     }
+    if (d.leaseEndDate) {
+      const diffTime = new Date(d.leaseEndDate) - new Date();
+      d.tenureLeftYears = Math.max(
+        0,
+        parseFloat((diffTime / (1000 * 60 * 60 * 24 * 365.25)).toFixed(2))
+      );
+    } else {
+      d.tenureLeftYears = null;
+    }
+
+    d.verificationLogs = (d.verificationLogs || []).map((log) => ({
+      id: log.id,
+      userId: log.verifiedBy?.userId,
+      name: `${log.verifiedBy?.firstName} ${log.verifiedBy?.lastName}`,
+      email: log.verifiedBy?.email,
+      role:
+        log.roleAtVerification || log.verifiedBy?.roles?.[0]?.roleName || null,
+      verifiedAt: log.createdAt,
+    }));
+
+    await logRequest(
+      req,
+      {
+        userId: req.user.userId,
+        status: 200,
+        body: { success: true, message: "Property fetched successfully" },
+        requestBodyLog,
+      },
+      requestStartTime
+    );
+
+    return sendEncodedResponse(
+      res,
+      200,
+      true,
+      "Property fetched successfully",
+      d
+    );
+  } catch (error) {
+    await logRequest(
+      req,
+      {
+        userId: req.user?.userId || null,
+        status: error.statusCode || 500,
+        body: { success: false, message: error.message },
+        requestBodyLog,
+        error: error.message,
+        stackTrace: error.stack,
+      },
+      requestStartTime
+    );
+    return next(error);
+  }
+});
+
+const getAdminNotifications = asyncHandler(async (req, res, next) => {
+  const requestStartTime = Date.now();
+  const userId = req.user.userId;
+  const { page = 1, limit = 20 } = req.query;
+
+  const pageNumber = parseInt(page);
+  const pageSize = parseInt(limit);
+  const offset = (pageNumber - 1) * pageSize;
+
+  const requestBodyLog = {
+    userId,
+    page,
+    limit,
+    role: req.userRole,
+  };
+
+  try {
+    const { count, rows: notifications } =
+      await PropertyNotificationEvent.findAndCountAll({
+        where: { userId, is_deleted: false },
+        include: [
+          {
+            model: Property,
+            as: "property",
+            attributes: ["propertyId", "city", "state", "propertyType"],
+            required: false,
+          },
+        ],
+        order: [["createdAt", "DESC"]],
+        limit: pageSize,
+        offset: offset,
+      });
+
+    const totalPages = Math.ceil(count / pageSize);
+
+    await logRequest(
+      req,
+      {
+        userId,
+        status: 200,
+        body: {
+          success: true,
+          message: "Notifications fetched successfully",
+          count: notifications.length,
+        },
+        requestBodyLog,
+      },
+      requestStartTime
+    );
+
+    return sendEncodedResponse(
+      res,
+      200,
+      true,
+      "Notifications fetched successfully",
+      notifications,
+      {
+        pagination: {
+          currentPage: pageNumber,
+          pageSize,
+          totalItems: count,
+          totalPages,
+          hasNextPage: pageNumber < totalPages,
+          hasPrevPage: pageNumber > 1,
+        },
+      }
+    );
+  } catch (error) {
+    return next(error);
+  }
 });
 
 const markNotificationAsRead = asyncHandler(async (req, res, next) => {
-    const { notificationId } = req.params;
-    const userId = req.user.userId;
+  const { notificationId } = req.params;
+  const userId = req.user.userId;
 
-    try {
-        const notification = await PropertyNotificationEvent.findOne({
-            where: { id: notificationId, userId, is_deleted: false }
-        });
+  try {
+    const notification = await PropertyNotificationEvent.findOne({
+      where: { id: notificationId, userId, is_deleted: false },
+    });
 
-        if (!notification) {
-            throw createAppError("Notification not found", 404);
-        }
-
-        await notification.update({ isRead: true });
-
-        return sendEncodedResponse(res, 200, true, "Notification marked as read", { notificationId });
-    } catch (error) {
-        return next(error);
+    if (!notification) {
+      throw createAppError("Notification not found", 404);
     }
+
+    await notification.update({ isRead: true });
+
+    return sendEncodedResponse(res, 200, true, "Notification marked as read", {
+      notificationId,
+    });
+  } catch (error) {
+    return next(error);
+  }
 });
 
 const markAllNotificationsAsRead = asyncHandler(async (req, res, next) => {
-    const userId = req.user.userId;
+  const userId = req.user.userId;
 
-    try {
-        await PropertyNotificationEvent.update(
-            { isRead: true },
-            { where: { userId, isRead: false, is_deleted: false } }
-        );
+  try {
+    await PropertyNotificationEvent.update(
+      { isRead: true },
+      { where: { userId, isRead: false, is_deleted: false } }
+    );
 
-        return sendEncodedResponse(res, 200, true, "All notifications marked as read", {});
-    } catch (error) {
-        return next(error);
-    }
+    return sendEncodedResponse(
+      res,
+      200,
+      true,
+      "All notifications marked as read",
+      {}
+    );
+  } catch (error) {
+    return next(error);
+  }
 });
 
 const deleteNotification = asyncHandler(async (req, res, next) => {
-    const { notificationId } = req.params;
-    const userId = req.user.userId;
+  const { notificationId } = req.params;
+  const userId = req.user.userId;
 
-    try {
-        const notification = await PropertyNotificationEvent.findOne({
-            where: { id: notificationId, userId }
-        });
+  try {
+    const notification = await PropertyNotificationEvent.findOne({
+      where: { id: notificationId, userId },
+    });
 
-        if (!notification) {
-            throw createAppError("Notification not found", 404);
-        }
-
-        await notification.update({ is_deleted: true });
-
-        return sendEncodedResponse(res, 200, true, "Notification deleted successfully", { notificationId });
-    } catch (error) {
-        return next(error);
+    if (!notification) {
+      throw createAppError("Notification not found", 404);
     }
+
+    await notification.update({ is_deleted: true });
+
+    return sendEncodedResponse(
+      res,
+      200,
+      true,
+      "Notification deleted successfully",
+      { notificationId }
+    );
+  } catch (error) {
+    return next(error);
+  }
 });
 
 const deleteAllNotifications = asyncHandler(async (req, res, next) => {
-    const userId = req.user.userId;
+  const userId = req.user.userId;
 
-    try {
-        await PropertyNotificationEvent.update(
-            { is_deleted: true },
-            { where: { userId, is_deleted: false } }
-        );
+  try {
+    await PropertyNotificationEvent.update(
+      { is_deleted: true },
+      { where: { userId, is_deleted: false } }
+    );
 
-        return sendEncodedResponse(res, 200, true, "All notifications deleted", {});
-    } catch (error) {
-        return next(error);
-    }
+    return sendEncodedResponse(res, 200, true, "All notifications deleted", {});
+  } catch (error) {
+    return next(error);
+  }
 });
 
 module.exports = {
-    createUser,
-    updateUser,
-    deleteUser,
-    getAllUsers,
-    getUserById,
-    createSuperAdmin,
-    reassignProperty,
-    getAllSalesRelatedActiveUsers,
-    verifyProperty,
-    unverifyProperty,
-    getAllSalesManagers,
-    adminGetAllProperties,
-    adminGetPropertyById,
-    getAdminNotifications,
-    markNotificationAsRead,
-    markAllNotificationsAsRead,
-    deleteNotification,
-    deleteAllNotifications,
-    VERIFICATION_ALLOWED_ROLES,
+  createUser,
+  updateUser,
+  deleteUser,
+  getAllUsers,
+  createSuperAdmin,
+  reassignProperty,
+  getAllSalesRelatedActiveUsers,
+  verifyProperty,
+  unverifyProperty,
+  getAllSalesManagers,
+  adminGetAllProperties,
+  adminGetPropertyById,
+  getAdminNotifications,
+  markNotificationAsRead,
+  markAllNotificationsAsRead,
+  deleteNotification,
+  deleteAllNotifications,
+  VERIFICATION_ALLOWED_ROLES,
+  getUserById,
 };
