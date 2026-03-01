@@ -98,146 +98,128 @@ const createPropertyInquiry = asyncHandler(async (req, res, next) => {
           autoAssignedTo = existingAssigned.assignedTo;
         }
       }
-    }
 
       await transaction.commit();
 
-    // Notify admins + sales manager about the new/updated inquiry
-    try {
-      const io = getIO();
-      const inquirerName = `${req.user.firstName} ${req.user.lastName}`;
-      const message = `New inquiry received for property in ${property.city} from ${inquirerName}`;
+      // Notify admins + sales manager about the new/updated inquiry
+      try {
+        const io = getIO();
+        const inquirerName = `${req.user.firstName} ${req.user.lastName}`;
+        const message = `New inquiry received for property in ${property.city} from ${inquirerName}`;
 
-      const admins = await User.findAll({
-        include: [
-          {
-            model: Role,
-            as: "roles",
-            where: { roleName: { [Op.in]: ["Admin", "Super Admin"] } },
-            through: { attributes: [] },
+        const admins = await User.findAll({
+          include: [
+            {
+              model: Role,
+              as: "roles",
+              where: { roleName: { [Op.in]: ["Admin", "Super Admin"] } },
+              through: { attributes: [] },
+            },
+          ],
+          attributes: ["userId"],
+          raw: true,
+        });
+        const adminIds = admins.map((a) => a.userId);
+
+        let salesManagerId = null;
+        if (property.salesId) {
+          const rel = await SalesRelationship.findOne({
+            where: { salesExecutiveId: property.salesId, isActive: true },
+          });
+          if (rel) salesManagerId = rel.salesManagerId;
+        }
+
+        const recipients = new Set([...adminIds, salesManagerId]);
+        recipients.delete(null);
+        recipients.delete(undefined);
+
+        const timestamp = new Date().toISOString();
+        for (const recipientId of recipients) {
+          const notif = await PropertyNotificationEvent.create({
+            propertyId: property.propertyId,
+            userId: recipientId,
+            notificationText: message,
+          });
+
+          io.to(`user:${recipientId}`).emit("inquiry:received", {
+            id: notif.id,
+            inquiryId: inquiryRecord.id,
+            propertyId: property.propertyId,
+            message,
+            timestamp,
+          });
+        }
+
+        // Notify the dealer who was auto-assigned on inquiry creation
+        if (autoAssignedTo) {
+          const dealerMessage = `A new inquiry for property in ${property.city} has been auto-assigned to you by the system.`;
+          const dealerNotif = await PropertyNotificationEvent.create({
+            propertyId: property.propertyId,
+            userId: autoAssignedTo,
+            notificationText: dealerMessage,
+          });
+
+          io.to(`user:${autoAssignedTo}`).emit("inquiry:assigned", {
+            id: dealerNotif.id,
+            inquiryId: inquiryRecord.id,
+            propertyId: property.propertyId,
+            message: dealerMessage,
+            assignedBy: "system",
+            timestamp,
+          });
+        }
+
+      } catch (notifErr) {
+        console.error(
+          "Notification failed in createPropertyInquiry:",
+          notifErr.message
+        );
+      }
+
+      await logRequest(
+        req,
+        {
+          userId: inquirerId,
+          status: 201,
+          body: {
+            success: true,
+            message: "Inquiry created successfully",
           },
-        ],
-        attributes: ["userId"],
-        raw: true,
-      });
-      const adminIds = admins.map((a) => a.userId);
-
-      let salesManagerId = null;
-      if (property.salesId) {
-        const rel = await SalesRelationship.findOne({
-          where: { salesExecutiveId: property.salesId, isActive: true },
-        });
-        if (rel) salesManagerId = rel.salesManagerId;
-      }
-
-      const recipients = new Set([...adminIds, salesManagerId]);
-      recipients.delete(null);
-      recipients.delete(undefined);
-
-      const timestamp = new Date().toISOString();
-      for (const recipientId of recipients) {
-        const notif = await PropertyNotificationEvent.create({
-          propertyId: property.propertyId,
-          userId: recipientId,
-          notificationText: message,
-        });
-
-        io.to(`user:${recipientId}`).emit("inquiry:received", {
-          id: notif.id,
-          inquiryId: inquiryRecord.id,
-          propertyId: property.propertyId,
-          message,
-          timestamp,
-        });
-      }
-
-      // Notify the dealer who was auto-assigned on inquiry creation
-      if (autoAssignedTo) {
-        const dealerMessage = `A new inquiry for property in ${property.city} has been auto-assigned to you by the system.`;
-        const dealerNotif = await PropertyNotificationEvent.create({
-          propertyId: property.propertyId,
-          userId: autoAssignedTo,
-          notificationText: dealerMessage,
-        });
-
-        io.to(`user:${autoAssignedTo}`).emit("inquiry:assigned", {
-          id: dealerNotif.id,
-          inquiryId: inquiryRecord.id,
-          propertyId: property.propertyId,
-          message: dealerMessage,
-          assignedBy: "system",
-          timestamp,
-        });
-      }
-
-      // Notify existing assigned dealer when client adds more questions to an open inquiry
-      if (!isNew && inquiryRecord.assignedTo) {
-        const dealerMessage = `${inquirerName} has added new questions to an existing inquiry for property in ${property.city}.`;
-        const dealerNotif = await PropertyNotificationEvent.create({
-          propertyId: property.propertyId,
-          userId: inquiryRecord.assignedTo,
-          notificationText: dealerMessage,
-        });
-
-        io.to(`user:${inquiryRecord.assignedTo}`).emit("inquiry:updated", {
-          id: dealerNotif.id,
-          inquiryId: inquiryRecord.id,
-          propertyId: property.propertyId,
-          message: dealerMessage,
-          timestamp,
-        });
-      }
-    } catch (notifErr) {
-      console.error(
-        "Notification failed in createPropertyInquiry:",
-        notifErr.message
+        },
+        requestStartTime,
+        requestBodyLog
       );
-    }
 
+      return sendEncodedResponse(
+        res,
+        201,
+        true,
+        "Inquiry created successfully",
+        {
+          inquiryId: inquiryRecord.id,
+          inquiry: inquiryRecord.inquiry,
+          priority: inquiryRecord.priority,
+          autoAssignedTo: autoAssignedTo || null,
+        }
+      );
+    } catch (error) {
+      await transaction.rollback();
+      throw error;
+    }
+  } catch (error) {
     await logRequest(
       req,
       {
-        userId: inquirerId,
-        status: 201,
-        body: {
-          success: true,
-          message: "Inquiry created successfully",
-        },
+        userId: req.user?.userId || null,
+        status: error.statusCode || 500,
+        body: { success: false, message: error.message },
+        error: error.message,
       },
       requestStartTime,
       requestBodyLog
     );
-
-    return sendEncodedResponse(
-      res,
-      201,
-      true,
-      "Inquiry created successfully",
-      {
-        inquiryId: inquiryRecord.id,
-        inquiry: inquiryRecord.inquiry,
-        priority: inquiryRecord.priority,
-        autoAssignedTo: autoAssignedTo || null,
-      }
-    );
-  } catch (error) {
-    await transaction.rollback();
-    throw error;
+    return next(error);
   }
-} catch (error) {
-  await logRequest(
-    req,
-    {
-      userId: req.user?.userId || null,
-      status: error.statusCode || 500,
-      body: { success: false, message: error.message },
-      error: error.message,
-    },
-    requestStartTime,
-    requestBodyLog
-  );
-  return next(error);
-}
 });
 
 // ============================================
