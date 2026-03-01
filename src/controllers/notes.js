@@ -171,7 +171,9 @@ const createPropertyManagerNotes = asyncHandler(async (req, res, next) => {
         const io = getIO();
         const salesExecName = `${req.user.firstName} ${req.user.lastName}`;
         const message = `${salesExecName} added notes to your property in ${property.city}`;
-        const recipientIds = [property.ownerId, property.brokerId].filter(Boolean);
+        const recipientIds = [property.ownerId, property.brokerId].filter(
+          Boolean
+        );
 
         if (recipientIds.length > 0) {
           const notificationRecords = recipientIds.map((uid) => ({
@@ -445,7 +447,9 @@ const getPropertyWithNotes = asyncHandler(async (req, res, next) => {
 
   try {
     const userRole = req.userRole || req.user.role;
-    const isAdminOrManager = ["Admin", "Super Admin", "Sales Manager"].includes(userRole);
+    const isAdminOrManager = ["Admin", "Super Admin", "Sales Manager"].includes(
+      userRole
+    );
 
     // Property access: sales executives can only see notes for their assigned property
     const where = { propertyId, isActive: true };
@@ -630,7 +634,13 @@ const getPropertyNotesByOwner = asyncHandler(async (req, res, next) => {
   try {
     const property = await Property.findOne({
       where: { propertyId, ownerId, isActive: true },
-      attributes: ["propertyId", "propertyType", "city", "state", "microMarket"],
+      attributes: [
+        "propertyId",
+        "propertyType",
+        "city",
+        "state",
+        "microMarket",
+      ],
       include: [
         {
           model: PropertyManagerNotes,
@@ -674,7 +684,13 @@ const getPropertyNotesByOwner = asyncHandler(async (req, res, next) => {
       requestStartTime
     );
 
-    return sendEncodedResponse(res, 200, true, "Notes fetched successfully", data);
+    return sendEncodedResponse(
+      res,
+      200,
+      true,
+      "Notes fetched successfully",
+      data
+    );
   } catch (error) {
     await logRequest(
       req,
@@ -803,7 +819,10 @@ const addOwnerNoteForProperty = asyncHandler(async (req, res, next) => {
     }
 
     if (property.isVerified === "completed") {
-      throw createAppError("Cannot add notes to a property that is fully verified", 403);
+      throw createAppError(
+        "Cannot add notes to a property that is fully verified",
+        403
+      );
     }
 
     const transaction = await sequelize.transaction();
@@ -853,13 +872,9 @@ const addOwnerNoteForProperty = asyncHandler(async (req, res, next) => {
         requestStartTime
       );
 
-      return sendEncodedResponse(
-        res,
-        201,
-        true,
-        "Note added successfully",
-        { note: noteObj }
-      );
+      return sendEncodedResponse(res, 201, true, "Note added successfully", {
+        note: noteObj,
+      });
     } catch (error) {
       await transaction.rollback();
       throw error;
