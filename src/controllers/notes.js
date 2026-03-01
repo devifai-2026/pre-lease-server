@@ -27,71 +27,28 @@ const { getIO } = require("../config/socket");
 const createPropertyManagerNotes = asyncHandler(async (req, res, next) => {
   const requestStartTime = Date.now();
   const { propertyId } = req.params;
-  const { notes } = req.body; // Array of {note, createdAt}
-  const salesExecutiveId = req.user.userId; // ✅ Fixed variable name
+  const { notes } = req.body; // ✅ Now a plain string
+  const salesExecutiveId = req.user.userId;
 
-  const requestBodyLog = {
-    propertyId,
-    notesCount: notes?.length || 0,
-  };
+  const requestBodyLog = { propertyId };
 
   try {
-    // Validate notes array
-    if (!notes || !Array.isArray(notes)) {
-      throw createAppError("notes must be an array", 400);
+    // ✅ Validate as plain string (not array anymore)
+    if (!notes || typeof notes !== "string" || notes.trim().length === 0) {
+      throw createAppError("notes must be a non-empty string", 400);
     }
 
-    if (notes.length === 0) {
-      throw createAppError("At least one note is required", 400);
+    if (notes.trim().length > 5000) {
+      throw createAppError("notes cannot exceed 5000 characters", 400);
     }
 
-    if (notes.length > 50) {
-      throw createAppError("Maximum 50 notes can be added at once", 400);
-    }
-
-    // Validate each note object
-    for (let i = 0; i < notes.length; i++) {
-      const noteItem = notes[i];
-
-      // Validate note text
-      if (!noteItem.note || typeof noteItem.note !== "string") {
-        throw createAppError(
-          `Note at index ${i}: note field is required and must be a string`,
-          400
-        );
-      }
-
-      if (noteItem.note.trim().length === 0) {
-        throw createAppError(`Note at index ${i}: note cannot be empty`, 400);
-      }
-
-      if (noteItem.note.length > 5000) {
-        throw createAppError(
-          `Note at index ${i}: note cannot exceed 5000 characters`,
-          400
-        );
-      }
-
-      // Validate createdAt (optional, will use current timestamp if not provided)
-      if (noteItem.createdAt) {
-        const date = new Date(noteItem.createdAt);
-        if (isNaN(date.getTime())) {
-          throw createAppError(
-            `Note at index ${i}: invalid createdAt date format`,
-            400
-          );
-        }
-      }
-    }
-
-    // ✅ Relaxed permission: Admin and Sales Manager can add notes to any property
     const isAdminOrManager = ["Admin", "Super Admin", "Sales Manager"].includes(
       req.user.role
     );
 
     const where = { propertyId, isActive: true };
     if (!isAdminOrManager) {
-      where.salesId = salesExecutiveId; // Sales Executives can only add notes to their assigned properties
+      where.salesId = salesExecutiveId;
     }
 
     const property = await Property.findOne({
@@ -118,55 +75,42 @@ const createPropertyManagerNotes = asyncHandler(async (req, res, next) => {
     const transaction = await sequelize.transaction();
 
     try {
-      // ✅ FIXED: Use correct column name
       let noteRecord = await PropertyManagerNotes.findOne({
-        where: {
-          propertyId,
-          salesExecutiveId, // ✅ Correct column name
-        },
+        where: { propertyId, salesExecutiveId },
         transaction,
       });
 
       let isNew = false;
-      let addedNotes = [];
 
       if (!noteRecord) {
-        // ✅ CREATE: First time - create with notes array
-        const notesWithTimestamp = notes.map((n) => ({
-          note: n.note,
-          createdAt: n.createdAt || new Date().toISOString(),
-        }));
-
+        // ✅ CREATE: plain text note with createdBy
         noteRecord = await PropertyManagerNotes.create(
           {
             propertyId,
-            salesExecutiveId, // ✅ Correct column name
-            notes: notesWithTimestamp,
-            totalNotesCount: notesWithTimestamp.length,
+            salesExecutiveId,
+            notes: notes.trim(),
+            totalNotesCount: 1,
             isActive: true,
+            createdBy: salesExecutiveId, // ✅ NEW
+            updatedBy: salesExecutiveId, // ✅ NEW
           },
           { transaction }
         );
-
-        addedNotes = notesWithTimestamp;
         isNew = true;
       } else {
-        // ✅ UPDATE: Push new notes to existing array
-        const notesWithTimestamp = notes.map((n) => ({
-          note: n.note,
-          createdAt: n.createdAt || new Date().toISOString(),
-        }));
-
-        PropertyManagerNotes.pushNotes(noteRecord, notesWithTimestamp);
+        // ✅ UPDATE: overwrite note text, mark as edited
+        noteRecord.notes = notes.trim();
+        noteRecord.isEdited = true; // ✅ NEW
+        noteRecord.editedNote = notes.trim(); // ✅ NEW — store edited version
+        noteRecord.updatedBy = salesExecutiveId; // ✅ NEW
+        noteRecord.totalNotesCount += 1;
         await noteRecord.save({ transaction });
-
-        addedNotes = notesWithTimestamp;
         isNew = false;
       }
 
       await transaction.commit();
 
-      // Notify property owner (and broker) that notes were added by the sales exec
+      // Notify property owner/broker
       try {
         const io = getIO();
         const salesExecName = `${req.user.firstName} ${req.user.lastName}`;
@@ -209,8 +153,7 @@ const createPropertyManagerNotes = asyncHandler(async (req, res, next) => {
             success: true,
             message: isNew
               ? "Notes created successfully"
-              : "Notes added successfully",
-            notesAdded: addedNotes.length,
+              : "Notes updated successfully",
           },
           requestBodyLog,
         },
@@ -221,12 +164,12 @@ const createPropertyManagerNotes = asyncHandler(async (req, res, next) => {
         res,
         isNew ? 201 : 200,
         true,
-        isNew ? "Notes created successfully" : "Notes added successfully",
+        isNew ? "Notes created successfully" : "Notes updated successfully",
         {
-          notesAdded: addedNotes.length,
-          addedNotes: addedNotes,
-          totalNotes: noteRecord.totalNotesCount,
-          isNew: isNew,
+          notes: PropertyManagerNotes.getEffectiveNote(noteRecord), // ✅ NEW helper
+          isEdited: noteRecord.isEdited,
+          totalNotesCount: noteRecord.totalNotesCount,
+          isNew,
         }
       );
     } catch (error) {
@@ -246,7 +189,6 @@ const createPropertyManagerNotes = asyncHandler(async (req, res, next) => {
       },
       requestStartTime
     );
-
     return next(error);
   }
 });
@@ -363,7 +305,8 @@ const getAllPropertiesWithNotes = asyncHandler(async (req, res, next) => {
         }
 
         // Sort notes by latest first
-        recordData.notes = PropertyManagerNotes.getAllNotes(record);
+        recordData.notes = PropertyManagerNotes.getEffectiveNote(record);
+        recordData.isEdited = record.isEdited;
 
         return recordData;
       })
@@ -559,15 +502,13 @@ const getPropertyWithNotes = asyncHandler(async (req, res, next) => {
 
     if (propertyData.managerNotes && propertyData.managerNotes.length > 0) {
       formattedNotes = propertyData.managerNotes.map((record) => {
-        record.notes = (record.notes || []).sort(
-          (a, b) => new Date(b.createdAt) - new Date(a.createdAt)
-        );
+        record.effectiveNote =
+          record.isEdited && record.editedNote
+            ? record.editedNote
+            : record.notes;
         return record;
       });
-      totalNotes = formattedNotes.reduce(
-        (sum, r) => sum + (r.totalNotesCount || 0),
-        0
-      );
+      totalNotes = formattedNotes.length;
     }
 
     // Remove managerNotes from property object to avoid duplication in response
@@ -666,9 +607,10 @@ const getPropertyNotesByOwner = asyncHandler(async (req, res, next) => {
     const data = property.toJSON();
     if (data.managerNotes) {
       data.managerNotes = data.managerNotes.map((record) => {
-        record.notes = (record.notes || []).sort(
-          (a, b) => new Date(b.createdAt) - new Date(a.createdAt)
-        );
+        record.effectiveNote =
+          record.isEdited && record.editedNote
+            ? record.editedNote
+            : record.notes;
         return record;
       });
     }
@@ -744,19 +686,27 @@ const getAllOwnerNotes = asyncHandler(async (req, res, next) => {
       const propData = prop.toJSON();
       if (propData.managerNotes) {
         propData.managerNotes.forEach((record) => {
-          record.notes.forEach((n) => {
-            allNotes.push({
-              note: n.note,
-              createdAt: n.createdAt,
-              propertyId: propData.propertyId,
-              microMarket: propData.microMarket,
-              location: `${propData.city}, ${propData.state}`,
-              addedBy: record.salesExecutive
-                ? `${record.salesExecutive.firstName} ${record.salesExecutive.lastName}`
-                : "System",
-            });
+          const effectiveNote =
+            record.isEdited && record.editedNote
+              ? record.editedNote
+              : record.notes;
+
+          allNotes.push({
+            note: effectiveNote,
+            isEdited: record.isEdited,
+            createdAt: record.createdAt,
+            updatedAt: record.updatedAt,
+            propertyId: propData.propertyId,
+            microMarket: propData.microMarket,
+            location: `${propData.city}, ${propData.state}`,
+            addedBy: record.salesExecutive
+              ? `${record.salesExecutive.firstName} ${record.salesExecutive.lastName}`
+              : "System",
           });
         });
+
+        // ✅ Sort by updatedAt (since no per-note createdAt anymore)
+        allNotes.sort((a, b) => new Date(b.updatedAt) - new Date(a.updatedAt));
       }
     });
 
@@ -848,14 +798,17 @@ const addOwnerNoteForProperty = asyncHandler(async (req, res, next) => {
           {
             propertyId,
             salesExecutiveId: ownerId,
-            notes: [noteObj],
+            notes: noteText, // ✅ plain string
             totalNotesCount: 1,
             isActive: true,
+            createdBy: ownerId, // ✅ NEW
+            updatedBy: ownerId, // ✅ NEW
           },
           { transaction }
         );
       } else {
-        PropertyManagerNotes.pushNotes(noteRecord, [noteObj]);
+        PropertyManagerNotes.markAsEdited(noteRecord, noteText, ownerId); // ✅ NEW helper
+        noteRecord.totalNotesCount += 1;
         await noteRecord.save({ transaction });
       }
 
@@ -873,7 +826,8 @@ const addOwnerNoteForProperty = asyncHandler(async (req, res, next) => {
       );
 
       return sendEncodedResponse(res, 201, true, "Note added successfully", {
-        note: noteObj,
+        note: noteText,
+        isEdited: noteRecord ? true : false,
       });
     } catch (error) {
       await transaction.rollback();
