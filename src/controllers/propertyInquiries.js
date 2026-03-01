@@ -68,12 +68,15 @@ const createPropertyInquiry = asyncHandler(async (req, res, next) => {
       );
 
       // If this CLIENT (inquirerId) already has a dealer assigned on any other
-      // inquiry (across any property), auto-assign this new inquiry to the same dealer
+      // inquiry (across any property), auto-assign this new inquiry to the same dealer.
+      // Only auto-assign if:
+      //   1. The dealer is still active (isActive: true)
+      //   2. The dealer still holds the "Sales Executive - Client Dealer" role
+      // If the most recent dealer is gone / changed role → leave unassigned (frontend decides).
       const existingAssigned = await PropertyInquiry.findOne({
         where: {
-          inquirerId,                          // ← same CLIENT, not same property
+          inquirerId,             // same CLIENT, not same property
           assignedTo: { [Op.not]: null },
-          status: { [Op.notIn]: ["closed"] },
           id: { [Op.ne]: inquiryRecord.id },
         },
         attributes: ["assignedTo"],
@@ -82,21 +85,35 @@ const createPropertyInquiry = asyncHandler(async (req, res, next) => {
       });
 
       if (existingAssigned) {
-        // Verify the previously assigned user is still active
+        // Verify the previously assigned dealer is still active AND still a Client Dealer
         const assigneeActive = await User.findOne({
           where: { userId: existingAssigned.assignedTo, isActive: true },
+          include: [
+            {
+              model: Role,
+              as: "roles",
+              where: {
+                roleName: "Sales Executive - Client Dealer",
+                isActive: true,
+              },
+              required: true,
+              through: { attributes: [] },
+              attributes: [],
+            },
+          ],
         });
+
         if (assigneeActive) {
           await inquiryRecord.update(
             {
               assignedTo: existingAssigned.assignedTo,
               assignedAt: new Date(),
-              status: "assigned",
             },
             { transaction }
           );
           autoAssignedTo = existingAssigned.assignedTo;
         }
+        // If dealer is inactive or role changed → leave assignedTo = null, frontend decides
       }
 
       await transaction.commit();

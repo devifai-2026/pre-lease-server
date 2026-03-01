@@ -14,6 +14,7 @@ const {
 } = require("../controllers/property");
 const {
   createPropertyManagerNotes,
+  approveOrEditNote,
   getAllPropertiesWithNotes,
   getPropertyWithNotes,
   getPropertyNotesByOwner,
@@ -25,6 +26,7 @@ const {
   checkPermission,
   checkSalesPerson,
   checkRole,
+  checkAdminOrSuperAdmin,
 } = require("../middlewares/auth");
 const { multerUpload, uploadToGCS } = require("../middlewares/uploadGCS");
 
@@ -97,12 +99,20 @@ router.get("/properties/:propertyId", getPropertyById);
 // INVESTOR NOTES (Investor Role)
 // ============================================
 
-// ✅ Create/Add notes for a property (Investor only)
+// ✅ Create/Add notes for a property (Sales Exec / Admin)
 router.post(
   "/properties/:propertyId/notes",
   authenticateUser,
   checkPermission("PROPERTY_NOTES"),
   createPropertyManagerNotes
+);
+
+// ✅ Approve / deny / edit a note (Admin / Super Admin only)
+router.patch(
+  "/notes/:propertyId/review",
+  authenticateUser,
+  checkAdminOrSuperAdmin,
+  approveOrEditNote
 );
 
 // ============================================
