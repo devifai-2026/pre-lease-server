@@ -14,17 +14,10 @@ const PropertyManagerNotes = sequelize.define(
       allowNull: false,
       primaryKey: true,
     },
+
     notes: {
-      type: DataTypes.JSONB,
+      type: DataTypes.TEXT,
       allowNull: false,
-      defaultValue: [],
-      validate: {
-        isValidNotesArray(value) {
-          if (!Array.isArray(value)) {
-            throw new Error("notes must be an array");
-          }
-        },
-      },
     },
     totalNotesCount: {
       type: DataTypes.INTEGER,
@@ -57,11 +50,43 @@ const PropertyManagerNotes = sequelize.define(
       allowNull: true,
       defaultValue: null,
     },
+
+    // ✅ NEW — who created this note
+    createdBy: {
+      type: DataTypes.UUID,
+      allowNull: true,
+      defaultValue: null,
+      field: "created_by",
+    },
+
+    // ✅ NEW — who last updated this note
+    updatedBy: {
+      type: DataTypes.UUID,
+      allowNull: true,
+      defaultValue: null,
+      field: "updated_by",
+    },
+
+    // ✅ NEW — whether this note has been edited after creation
+    isEdited: {
+      type: DataTypes.BOOLEAN,
+      allowNull: false,
+      defaultValue: false,
+      field: "is_edited",
+    },
+
+    // ✅ NEW — the edited version of the note (null if not edited)
+    editedNote: {
+      type: DataTypes.TEXT,
+      allowNull: true,
+      defaultValue: null,
+      field: "edited_note",
+    },
   },
   {
     tableName: "property_manager_notes",
-    // timestamps: true,    // ✅ Inherited from global config
-    // underscored: true,   // ✅ Inherited from global config
+    // timestamps: true, // ✅ Inherited from global config
+    // underscored: true, // ✅ Inherited from global config
     // freezeTableName: true, // ✅ Inherited from global config
   }
 );
@@ -71,33 +96,34 @@ const PropertyManagerNotes = sequelize.define(
 // ============================================
 
 /**
- * Add/Push new notes to existing array
+ * Get the current note text
+ * Returns editedNote if the note has been edited, otherwise returns original notes
  * @param {Object} noteRecord - The PropertyManagerNotes instance
- * @param {Array} newNotesArray - Array of new notes to push [{note: "...", createdAt: "..."}, ...]
- * @returns {Array} The newly added notes
+ * @returns {string} The effective note text
  */
-PropertyManagerNotes.pushNotes = function (noteRecord, newNotesArray) {
-  if (!Array.isArray(newNotesArray)) {
-    throw new Error("newNotesArray must be an array");
-  }
-
-  // Add to existing notes array
-  noteRecord.notes = [...noteRecord.notes, ...newNotesArray];
-  noteRecord.totalNotesCount = noteRecord.notes.length;
-  noteRecord.changed("notes", true);
-
-  return newNotesArray;
+PropertyManagerNotes.getEffectiveNote = function (noteRecord) {
+  return noteRecord.isEdited && noteRecord.editedNote
+    ? noteRecord.editedNote
+    : noteRecord.notes;
 };
 
 /**
- * Get all notes sorted by latest first
+ * Mark a note as edited
  * @param {Object} noteRecord - The PropertyManagerNotes instance
- * @returns {Array} Array of note objects
+ * @param {string} newNoteText - The edited note content
+ * @param {string} updatedByUserId - UUID of the user making the edit
  */
-PropertyManagerNotes.getAllNotes = function (noteRecord) {
-  return noteRecord.notes.sort(
-    (a, b) => new Date(b.createdAt) - new Date(a.createdAt)
-  );
+PropertyManagerNotes.markAsEdited = function (
+  noteRecord,
+  newNoteText,
+  updatedByUserId
+) {
+  if (typeof newNoteText !== "string" || !newNoteText.trim()) {
+    throw new Error("newNoteText must be a non-empty string");
+  }
+  noteRecord.editedNote = newNoteText;
+  noteRecord.isEdited = true;
+  noteRecord.updatedBy = updatedByUserId;
 };
 
 module.exports = PropertyManagerNotes;
