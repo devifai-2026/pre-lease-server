@@ -10,10 +10,10 @@ module.exports = {
 
     await queryInterface.sequelize.query(`
       CREATE TABLE IF NOT EXISTS property_manager_notes (
+        note_id UUID NOT NULL DEFAULT gen_random_uuid(),
         property_id UUID NOT NULL,
         sales_executive_id UUID NOT NULL,
         notes TEXT NOT NULL DEFAULT '[]',
-        total_notes_count INTEGER NOT NULL DEFAULT 0,
         status note_status NOT NULL DEFAULT 'approved',
         is_active BOOLEAN NOT NULL DEFAULT true,
         created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
@@ -24,7 +24,7 @@ module.exports = {
         updated_by UUID NULL,
         is_edited BOOLEAN NOT NULL DEFAULT false,
         edited_note TEXT NULL,
-        CONSTRAINT property_manager_notes_pkey PRIMARY KEY (property_id, sales_executive_id),
+        CONSTRAINT property_manager_notes_pkey PRIMARY KEY (note_id),
         CONSTRAINT fk_property_manager_property FOREIGN KEY (property_id)
           REFERENCES properties(property_id) ON DELETE CASCADE,
         CONSTRAINT fk_property_manager_sales_executive FOREIGN KEY (sales_executive_id)
