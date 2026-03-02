@@ -4,29 +4,31 @@ const { sequelize } = require("../config/dbConnection");
 const PropertyManagerNotes = sequelize.define(
   "PropertyManagerNotes",
   {
-    propertyId: {
+    noteId: {
       type: DataTypes.UUID,
+      defaultValue: DataTypes.UUIDV4,
       allowNull: false,
       primaryKey: true,
     },
+
+    propertyId: {
+      type: DataTypes.UUID,
+      allowNull: false,
+    },
+
+    // FK to the user who created this note (sales exec, admin, or owner)
     salesExecutiveId: {
       type: DataTypes.UUID,
       allowNull: false,
-      primaryKey: true,
     },
 
     notes: {
       type: DataTypes.TEXT,
       allowNull: false,
     },
-    totalNotesCount: {
-      type: DataTypes.INTEGER,
-      allowNull: false,
-      defaultValue: 0,
-    },
 
     status: {
-      type: DataTypes.ENUM("pending", "approved"),
+      type: DataTypes.ENUM("pending", "approved", "denied"),
       allowNull: false,
       defaultValue: "approved",
     },
@@ -37,7 +39,7 @@ const PropertyManagerNotes = sequelize.define(
       defaultValue: true,
     },
 
-    // Nullable FK — who last edited this record
+    // Nullable FK — who edited this record (admin only)
     editedBy: {
       type: DataTypes.UUID,
       allowNull: true,
@@ -51,28 +53,28 @@ const PropertyManagerNotes = sequelize.define(
       defaultValue: null,
     },
 
-    // ✅ NEW — who created this note
+    // Who created this note
     createdBy: {
       type: DataTypes.UUID,
       allowNull: true,
       defaultValue: null,
     },
 
-    // ✅ NEW — who last updated this note
+    // Who last updated this note
     updatedBy: {
       type: DataTypes.UUID,
       allowNull: true,
       defaultValue: null,
     },
 
-    // ✅ NEW — whether this note has been edited after creation
+    // Whether this note has been edited by admin after creation
     isEdited: {
       type: DataTypes.BOOLEAN,
       allowNull: false,
       defaultValue: false,
     },
 
-    // ✅ NEW — the edited version of the note (null if not edited)
+    // The admin-edited version of the note (null if not edited)
     editedNote: {
       type: DataTypes.TEXT,
       allowNull: true,
@@ -81,9 +83,6 @@ const PropertyManagerNotes = sequelize.define(
   },
   {
     tableName: "property_manager_notes",
-    // timestamps: true, // ✅ Inherited from global config
-    // underscored: true, // ✅ Inherited from global config
-    // freezeTableName: true, // ✅ Inherited from global config
   }
 );
 
@@ -94,32 +93,11 @@ const PropertyManagerNotes = sequelize.define(
 /**
  * Get the current note text
  * Returns editedNote if the note has been edited, otherwise returns original notes
- * @param {Object} noteRecord - The PropertyManagerNotes instance
- * @returns {string} The effective note text
  */
 PropertyManagerNotes.getEffectiveNote = function (noteRecord) {
   return noteRecord.isEdited && noteRecord.editedNote
     ? noteRecord.editedNote
     : noteRecord.notes;
-};
-
-/**
- * Mark a note as edited
- * @param {Object} noteRecord - The PropertyManagerNotes instance
- * @param {string} newNoteText - The edited note content
- * @param {string} updatedByUserId - UUID of the user making the edit
- */
-PropertyManagerNotes.markAsEdited = function (
-  noteRecord,
-  newNoteText,
-  updatedByUserId
-) {
-  if (typeof newNoteText !== "string" || !newNoteText.trim()) {
-    throw new Error("newNoteText must be a non-empty string");
-  }
-  noteRecord.editedNote = newNoteText;
-  noteRecord.isEdited = true;
-  noteRecord.updatedBy = updatedByUserId;
 };
 
 module.exports = PropertyManagerNotes;

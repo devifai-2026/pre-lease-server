@@ -62,20 +62,32 @@ const getAdminAndManagerUserIds = async () => {
 };
 
 // ============================================
-// 1) CREATE NOTES — Sales Executive / Admin
+// SHARED: format a note record for response
+// ============================================
+
+const formatNote = (record) => {
+  const formatted = typeof record.toJSON === "function" ? record.toJSON() : { ...record };
+  formatted.originalNote = formatted.notes;
+  formatted.adminNote = formatted.isEdited ? formatted.editedNote : null;
+  delete formatted.notes;
+  delete formatted.editedNote;
+  return formatted;
+};
+
+// ============================================
+// 1) CREATE NOTES — Sales Executive / Admin / Owner
 // ============================================
 
 /**
- * Sales Executive creates a note → status = 'pending' (needs admin approval).
- * Admin / Super Admin / Sales Manager create a note → status = 'approved'.
- * Only the sales exec assigned to the property (property.salesId) can create notes,
- * unless the caller is Admin / Super Admin / Sales Manager.
+ * Each call always creates a NEW note row (no upsert).
+ * Sales Executive → status = 'pending' (needs admin approval).
+ * Admin / Super Admin / Sales Manager → status = 'approved' (auto-approved + notifications).
  */
 const createPropertyManagerNotes = asyncHandler(async (req, res, next) => {
   const requestStartTime = Date.now();
   const { propertyId } = req.params;
   const { notes } = req.body;
-  const salesExecutiveId = req.user.userId;
+  const callerId = req.user.userId;
 
   const requestBodyLog = { propertyId };
 
@@ -89,24 +101,17 @@ const createPropertyManagerNotes = asyncHandler(async (req, res, next) => {
     }
 
     const isAdminOrManager = ["Admin", "Super Admin", "Sales Manager"].includes(
-      req.user.role
+      req.userRole || req.user.role
     );
 
-    const where = { propertyId, isActive: true };
+    const propertyWhere = { propertyId, isActive: true };
     if (!isAdminOrManager) {
-      where.salesId = salesExecutiveId;
+      propertyWhere.salesId = callerId;
     }
 
     const property = await Property.findOne({
-      where,
-      attributes: [
-        "propertyId",
-        "salesId",
-        "ownerId",
-        "brokerId",
-        "city",
-        "state",
-      ],
+      where: propertyWhere,
+      attributes: ["propertyId", "salesId", "ownerId", "brokerId", "city", "state"],
     });
 
     if (!property) {
@@ -121,111 +126,94 @@ const createPropertyManagerNotes = asyncHandler(async (req, res, next) => {
     // Sales exec notes go 'pending'; admin / manager notes are auto-approved
     const noteStatus = isAdminOrManager ? "approved" : "pending";
 
-    const transaction = await sequelize.transaction();
+    const noteRecord = await PropertyManagerNotes.create({
+      propertyId,
+      salesExecutiveId: callerId,
+      notes: notes.trim(),
+      status: noteStatus,
+      isActive: true,
+      createdBy: callerId,
+      updatedBy: callerId,
+    });
 
+    // ── Notifications
     try {
-      let noteRecord = await PropertyManagerNotes.findOne({
-        where: { propertyId, salesExecutiveId },
-        transaction,
-      });
+      const io = getIO();
+      const callerName = `${req.user.firstName} ${req.user.lastName}`;
+      const timestamp = new Date().toISOString();
 
-      let isNew = false;
-
-      if (!noteRecord) {
-        noteRecord = await PropertyManagerNotes.create(
-          {
-            propertyId,
-            salesExecutiveId,
-            notes: notes.trim(),
-            totalNotesCount: 1,
-            status: noteStatus,
-            isActive: true,
-            createdBy: salesExecutiveId,
-            updatedBy: salesExecutiveId,
-          },
-          { transaction }
-        );
-        isNew = true;
-      } else {
-        noteRecord.notes = notes.trim();
-        noteRecord.status = noteStatus; // reset to pending if exec re-submits
-        noteRecord.isEdited = false;
-        noteRecord.editedNote = null;
-        noteRecord.updatedBy = salesExecutiveId;
-        noteRecord.totalNotesCount += 1;
-        await noteRecord.save({ transaction });
-        isNew = false;
-      }
-
-      await transaction.commit();
-
-      // ── Socket: notify Admin + Super Admin + Sales Manager about the pending note
       if (!isAdminOrManager) {
-        try {
-          const io = getIO();
-          const salesExecName = `${req.user.firstName} ${req.user.lastName}`;
-          const message = `${salesExecName} added a note to a property in ${property.city} — pending your approval`;
-          const recipientIds = await getAdminAndManagerUserIds();
-          const timestamp = new Date().toISOString();
+        // Notify Admin + Super Admin + Sales Manager about the pending note
+        const message = `${callerName} added a note to a property in ${property.city} — pending your approval`;
+        const recipientIds = await getAdminAndManagerUserIds();
 
-          if (recipientIds.length > 0) {
-            const notificationRecords = recipientIds.map((uid) => ({
+        if (recipientIds.length > 0) {
+          await PropertyNotificationEvent.bulkCreate(
+            recipientIds.map((uid) => ({
               propertyId: property.propertyId,
               userId: uid,
               notificationText: message,
-            }));
-            await PropertyNotificationEvent.bulkCreate(notificationRecords);
-
-            recipientIds.forEach((uid) => {
-              io.to(`user:${uid}`).emit("property:note_pending_approval", {
-                propertyId: property.propertyId,
-                message,
-                addedBy: req.user.userId,
-                timestamp,
-              });
-            });
-          }
-        } catch (notifErr) {
-          console.error(
-            "Notification failed in createPropertyManagerNotes:",
-            notifErr.message
+            }))
           );
+
+          recipientIds.forEach((uid) => {
+            io.to(`user:${uid}`).emit("property:note_pending_approval", {
+              propertyId: property.propertyId,
+              noteId: noteRecord.noteId,
+              message,
+              addedBy: callerId,
+              timestamp,
+            });
+          });
+        }
+      } else {
+        // Admin added an auto-approved note — notify property owner + sales exec
+        const message = `${callerName} added a note to a property in ${property.city}`;
+        const recipientSet = new Set();
+        if (property.ownerId) recipientSet.add(property.ownerId);
+        if (property.salesId && property.salesId !== callerId) recipientSet.add(property.salesId);
+
+        const recipientIds = [...recipientSet];
+        if (recipientIds.length > 0) {
+          await PropertyNotificationEvent.bulkCreate(
+            recipientIds.map((uid) => ({
+              propertyId: property.propertyId,
+              userId: uid,
+              notificationText: message,
+            }))
+          );
+          recipientIds.forEach((uid) => {
+            io.to(`user:${uid}`).emit("property:note_added", {
+              propertyId: property.propertyId,
+              noteId: noteRecord.noteId,
+              message,
+              addedBy: callerId,
+              timestamp,
+            });
+          });
         }
       }
-
-      await logRequest(
-        req,
-        {
-          userId: req.user.userId,
-          status: isNew ? 201 : 200,
-          body: {
-            success: true,
-            message: isNew
-              ? "Notes created successfully"
-              : "Notes updated successfully",
-          },
-          requestBodyLog,
-        },
-        requestStartTime
-      );
-
-      return sendEncodedResponse(
-        res,
-        isNew ? 201 : 200,
-        true,
-        isNew ? "Notes created successfully" : "Notes updated successfully",
-        {
-          notes: PropertyManagerNotes.getEffectiveNote(noteRecord),
-          status: noteRecord.status,
-          isEdited: noteRecord.isEdited,
-          totalNotesCount: noteRecord.totalNotesCount,
-          isNew,
-        }
-      );
-    } catch (error) {
-      await transaction.rollback();
-      throw error;
+    } catch (notifErr) {
+      console.error("Notification failed in createPropertyManagerNotes:", notifErr.message);
     }
+
+    await logRequest(
+      req,
+      {
+        userId: callerId,
+        status: 201,
+        body: { success: true, message: "Note created successfully" },
+        requestBodyLog,
+      },
+      requestStartTime
+    );
+
+    return sendEncodedResponse(res, 201, true, "Note created successfully", {
+      noteId: noteRecord.noteId,
+      originalNote: noteRecord.notes,
+      status: noteRecord.status,
+      isEdited: noteRecord.isEdited,
+    });
   } catch (error) {
     await logRequest(
       req,
@@ -249,27 +237,22 @@ const createPropertyManagerNotes = asyncHandler(async (req, res, next) => {
 
 /**
  * Admin or Super Admin can:
- *  - Approve a pending note                          (action = 'approve')
- *  - Approve + edit the note text before publishing  (action = 'approve', editedNote provided)
- *  - Deny a pending note                             (action = 'deny')
+ *  - Approve a note                                    (action = 'approve')
+ *  - Approve + edit the note text before publishing    (action = 'approve', editedNote provided)
+ *  - Deny a note                                       (action = 'deny')
  *
- * Socket events:
- *  - approve → notifies the sales exec + property owner
- *  - deny    → notifies the sales exec only
+ * Identified by noteId in the URL param.
+ * Everything done by admin is auto-approved and emits socket events + saves notifications.
  */
 const approveOrEditNote = asyncHandler(async (req, res, next) => {
   const requestStartTime = Date.now();
-  const { propertyId } = req.params;
-  const { salesExecutiveId, action, editedNote } = req.body;
+  const { noteId } = req.params;
+  const { action, editedNote } = req.body;
   const adminId = req.user.userId;
 
-  const requestBodyLog = { propertyId, salesExecutiveId, action };
+  const requestBodyLog = { noteId, action };
 
   try {
-    if (!salesExecutiveId) {
-      throw createAppError("salesExecutiveId is required", 400);
-    }
-
     if (!["approve", "deny"].includes(action)) {
       throw createAppError("action must be 'approve' or 'deny'", 400);
     }
@@ -283,31 +266,28 @@ const approveOrEditNote = asyncHandler(async (req, res, next) => {
       }
     }
 
-    const property = await Property.findOne({
-      where: { propertyId, isActive: true },
-      attributes: ["propertyId", "ownerId", "city", "state"],
-    });
-
-    if (!property) {
-      throw createAppError("Property not found", 404);
-    }
-
     const transaction = await sequelize.transaction();
 
     try {
       const noteRecord = await PropertyManagerNotes.findOne({
-        where: { propertyId, salesExecutiveId },
+        where: { noteId, isActive: true },
         transaction,
       });
 
       if (!noteRecord) {
-        await transaction.rollback();
         throw createAppError("Note not found", 404);
       }
 
-      if (noteRecord.status === "approved") {
-        await transaction.rollback();
-        throw createAppError("This note is already approved", 400);
+      const { salesExecutiveId, propertyId } = noteRecord;
+
+      const property = await Property.findOne({
+        where: { propertyId, isActive: true },
+        attributes: ["propertyId", "ownerId", "city", "state"],
+        transaction,
+      });
+
+      if (!property) {
+        throw createAppError("Property not found", 404);
       }
 
       if (action === "approve") {
@@ -341,10 +321,10 @@ const approveOrEditNote = asyncHandler(async (req, res, next) => {
             ? `Your note has been edited and approved by ${adminName}`
             : `Your note has been approved by ${adminName}`;
           const adminBroadcastMessage = wasEdited
-            ? `${adminName} edited and approved a sales executive note for a property in ${property.city}`
-            : `${adminName} approved a sales executive note for a property in ${property.city}`;
+            ? `${adminName} edited and approved a note for a property in ${property.city}`
+            : `${adminName} approved a note for a property in ${property.city}`;
 
-          // ── Notify the sales executive (DB + socket)
+          // Notify the note author
           await PropertyNotificationEvent.create({
             propertyId,
             userId: salesExecutiveId,
@@ -352,13 +332,14 @@ const approveOrEditNote = asyncHandler(async (req, res, next) => {
           });
           io.to(`user:${salesExecutiveId}`).emit("property:note_approved", {
             propertyId,
+            noteId,
             message: execMessage,
             approvedBy: adminId,
             isEdited: wasEdited,
             timestamp,
           });
 
-          // ── Notify property owner (DB + socket)
+          // Notify property owner
           if (property.ownerId) {
             const ownerMessage = `A note from your property manager has been approved for your property in ${property.city}`;
             await PropertyNotificationEvent.create({
@@ -368,13 +349,14 @@ const approveOrEditNote = asyncHandler(async (req, res, next) => {
             });
             io.to(`user:${property.ownerId}`).emit("property:note_approved", {
               propertyId,
+              noteId,
               message: ownerMessage,
               approvedBy: adminId,
               timestamp,
             });
           }
 
-          // ── Notify all other Admin + Super Admin (DB + socket)
+          // Notify other Admin + Super Admin
           const adminIds = await getAdminUserIds();
           const otherAdminIds = adminIds.filter((uid) => uid !== adminId);
           if (otherAdminIds.length > 0) {
@@ -388,6 +370,7 @@ const approveOrEditNote = asyncHandler(async (req, res, next) => {
             otherAdminIds.forEach((uid) => {
               io.to(`user:${uid}`).emit("property:note_approved", {
                 propertyId,
+                noteId,
                 message: adminBroadcastMessage,
                 approvedBy: adminId,
                 isEdited: wasEdited,
@@ -396,7 +379,7 @@ const approveOrEditNote = asyncHandler(async (req, res, next) => {
             });
           }
         } else {
-          // ── deny — notify sales exec + other Admin + Super Admin (DB + socket)
+          // deny
           const denyMessage = `Your note has been denied by ${adminName}`;
           await PropertyNotificationEvent.create({
             propertyId,
@@ -405,12 +388,13 @@ const approveOrEditNote = asyncHandler(async (req, res, next) => {
           });
           io.to(`user:${salesExecutiveId}`).emit("property:note_denied", {
             propertyId,
+            noteId,
             message: denyMessage,
             deniedBy: adminId,
             timestamp,
           });
 
-          const adminBroadcastMessage = `${adminName} denied a sales executive note for a property in ${property.city}`;
+          const adminBroadcastMessage = `${adminName} denied a note for a property in ${property.city}`;
           const adminIds = await getAdminUserIds();
           const otherAdminIds = adminIds.filter((uid) => uid !== adminId);
           if (otherAdminIds.length > 0) {
@@ -424,6 +408,7 @@ const approveOrEditNote = asyncHandler(async (req, res, next) => {
             otherAdminIds.forEach((uid) => {
               io.to(`user:${uid}`).emit("property:note_denied", {
                 propertyId,
+                noteId,
                 message: adminBroadcastMessage,
                 deniedBy: adminId,
                 timestamp,
@@ -432,10 +417,7 @@ const approveOrEditNote = asyncHandler(async (req, res, next) => {
           }
         }
       } catch (notifErr) {
-        console.error(
-          "Notification failed in approveOrEditNote:",
-          notifErr.message
-        );
+        console.error("Notification failed in approveOrEditNote:", notifErr.message);
       }
 
       await logRequest(
@@ -445,10 +427,7 @@ const approveOrEditNote = asyncHandler(async (req, res, next) => {
           status: 200,
           body: {
             success: true,
-            message:
-              action === "approve"
-                ? "Note approved successfully"
-                : "Note denied successfully",
+            message: action === "approve" ? "Note approved successfully" : "Note denied successfully",
           },
           requestBodyLog,
         },
@@ -461,12 +440,12 @@ const approveOrEditNote = asyncHandler(async (req, res, next) => {
         true,
         action === "approve" ? "Note approved successfully" : "Note denied successfully",
         {
+          noteId,
           status: noteRecord.status,
           originalNote: noteRecord.notes,
           adminNote: noteRecord.isEdited ? noteRecord.editedNote : null,
           isEdited: noteRecord.isEdited,
           approvedBy: noteRecord.approvedBy,
-          updatedBy: noteRecord.updatedBy,
         }
       );
     } catch (error) {
@@ -495,8 +474,8 @@ const approveOrEditNote = asyncHandler(async (req, res, next) => {
 // ============================================
 
 /**
- * Get all properties with property manager notes assigned to logged-in sales agent
- * Only shows properties where sales_id matches logged-in user (Sales Manager or Sales Executive)
+ * Get all notes assigned to logged-in sales agent's properties.
+ * Returns a flat list of note records with nested property data.
  */
 const getAllPropertiesWithNotes = asyncHandler(async (req, res, next) => {
   const requestStartTime = Date.now();
@@ -508,13 +487,7 @@ const getAllPropertiesWithNotes = asyncHandler(async (req, res, next) => {
     sortOrder = "DESC",
   } = req.query;
 
-  const requestBodyLog = {
-    salesExecutiveId,
-    page,
-    limit,
-    sortBy,
-    sortOrder,
-  };
+  const requestBodyLog = { salesExecutiveId, page, limit, sortBy, sortOrder };
 
   try {
     const userRole = req.userRole || req.user.role;
@@ -540,64 +513,62 @@ const getAllPropertiesWithNotes = asyncHandler(async (req, res, next) => {
     const pageSize = parseInt(limit);
     const offset = (pageNumber - 1) * pageSize;
 
-    const { count, rows: noteRecords } =
-      await PropertyManagerNotes.findAndCountAll({
-        where: noteWhereClause,
-        include: [
-          {
-            model: Property,
-            as: "property",
-            required: true,
-            where: { isActive: true },
-            attributes: [
-              "propertyId",
-              "propertyType",
-              "city",
-              "state",
-              "microMarket",
-              "carpetArea",
-              "carpetAreaUnit",
-              "sellingPrice",
-              "totalMonthlyRent",
-              "sellingStatus",
-              "isVerified",
-              "createdAt",
-            ],
-            include: [
-              {
-                model: PropertyMedia,
-                as: "media",
-                attributes: ["mediaId", "mediaType", "fileUrl"],
-                required: false,
-                limit: 1,
-                separate: true,
-              },
-            ],
-          },
-        ],
-        order: [[sortBy, sortOrder.toUpperCase()]],
-        limit: pageSize,
-        offset: offset,
-        distinct: true,
-      });
+    const { count, rows: noteRecords } = await PropertyManagerNotes.findAndCountAll({
+      where: noteWhereClause,
+      include: [
+        {
+          model: Property,
+          as: "property",
+          required: true,
+          where: { isActive: true },
+          attributes: [
+            "propertyId",
+            "propertyType",
+            "city",
+            "state",
+            "microMarket",
+            "carpetArea",
+            "carpetAreaUnit",
+            "sellingPrice",
+            "totalMonthlyRent",
+            "sellingStatus",
+            "isVerified",
+            "createdAt",
+          ],
+          include: [
+            {
+              model: PropertyMedia,
+              as: "media",
+              attributes: ["mediaId", "mediaType", "fileUrl"],
+              required: false,
+              limit: 1,
+              separate: true,
+            },
+          ],
+        },
+        {
+          model: User,
+          as: "salesExecutive",
+          attributes: ["userId", "firstName", "lastName", "email"],
+          required: false,
+        },
+      ],
+      order: [[sortBy, sortOrder.toUpperCase()]],
+      limit: pageSize,
+      offset: offset,
+      distinct: true,
+    });
 
     const notesWithSignedUrls = await Promise.all(
       noteRecords.map(async (record) => {
         const recordData = record.toJSON();
 
-        if (
-          recordData.property?.media &&
-          recordData.property.media.length > 0
-        ) {
-          recordData.property.media = await attachSignedUrls(
-            recordData.property.media
-          );
+        if (recordData.property?.media && recordData.property.media.length > 0) {
+          recordData.property.media = await attachSignedUrls(recordData.property.media);
         }
 
-        // Log-style: expose original note and admin's edit separately
-        recordData.originalNote = record.notes;
-        recordData.adminNote = record.isEdited ? record.editedNote : null;
-        recordData.isEdited = record.isEdited;
+        recordData.originalNote = recordData.notes;
+        recordData.adminNote = recordData.isEdited ? recordData.editedNote : null;
         delete recordData.notes;
         delete recordData.editedNote;
 
@@ -606,8 +577,6 @@ const getAllPropertiesWithNotes = asyncHandler(async (req, res, next) => {
     );
 
     const totalPages = Math.ceil(count / pageSize);
-    const hasNextPage = pageNumber < totalPages;
-    const hasPrevPage = pageNumber > 1;
 
     await logRequest(
       req,
@@ -617,7 +586,7 @@ const getAllPropertiesWithNotes = asyncHandler(async (req, res, next) => {
         body: {
           success: true,
           message: "Properties with notes fetched successfully",
-          count: count,
+          count,
         },
         requestBodyLog,
       },
@@ -633,14 +602,14 @@ const getAllPropertiesWithNotes = asyncHandler(async (req, res, next) => {
       {
         pagination: {
           currentPage: pageNumber,
-          pageSize: pageSize,
+          pageSize,
           totalItems: count,
-          totalPages: totalPages,
-          hasNextPage: hasNextPage,
-          hasPrevPage: hasPrevPage,
+          totalPages,
+          hasNextPage: pageNumber < totalPages,
+          hasPrevPage: pageNumber > 1,
         },
         assignedTo: {
-          salesExecutiveId: salesExecutiveId,
+          salesExecutiveId,
           role: req.user.roles,
         },
       }
@@ -668,24 +637,19 @@ const getAllPropertiesWithNotes = asyncHandler(async (req, res, next) => {
 // ============================================
 
 /**
- * Get a specific property with all property manager notes
- * Only accessible if property's sales_id matches logged-in sales agent
+ * Get all notes for a specific property.
+ * Sales exec sees only their own notes; Admin / Manager sees all.
  */
 const getPropertyWithNotes = asyncHandler(async (req, res, next) => {
   const requestStartTime = Date.now();
   const { propertyId } = req.params;
   const salesExecutiveId = req.user.userId;
 
-  const requestBodyLog = {
-    propertyId,
-    salesExecutiveId,
-  };
+  const requestBodyLog = { propertyId, salesExecutiveId };
 
   try {
     const userRole = req.userRole || req.user.role;
-    const isAdminOrManager = ["Admin", "Super Admin", "Sales Manager"].includes(
-      userRole
-    );
+    const isAdminOrManager = ["Admin", "Super Admin", "Sales Manager"].includes(userRole);
 
     const where = { propertyId, isActive: true };
     if (!isAdminOrManager) {
@@ -694,7 +658,7 @@ const getPropertyWithNotes = asyncHandler(async (req, res, next) => {
 
     const notesWhere = { isActive: true };
     if (["Admin", "Super Admin"].includes(userRole)) {
-      // No filter
+      // No filter — see all notes
     } else if (userRole === "Sales Manager") {
       const relationships = await SalesRelationship.findAll({
         where: { salesManagerId: salesExecutiveId, isActive: true },
@@ -759,13 +723,7 @@ const getPropertyWithNotes = asyncHandler(async (req, res, next) => {
             {
               model: User,
               as: "salesExecutive",
-              attributes: [
-                "userId",
-                "firstName",
-                "lastName",
-                "email",
-                "mobileNumber",
-              ],
+              attributes: ["userId", "firstName", "lastName", "email", "mobileNumber"],
               required: false,
             },
           ],
@@ -786,11 +744,8 @@ const getPropertyWithNotes = asyncHandler(async (req, res, next) => {
     }
 
     let formattedNotes = [];
-    let totalNotes = 0;
-
     if (propertyData.managerNotes && propertyData.managerNotes.length > 0) {
       formattedNotes = propertyData.managerNotes.map((record) => {
-        // Log-style: both the original and admin's edit are visible
         const formatted = { ...record };
         formatted.originalNote = record.notes;
         formatted.adminNote = record.isEdited ? record.editedNote : null;
@@ -798,7 +753,6 @@ const getPropertyWithNotes = asyncHandler(async (req, res, next) => {
         delete formatted.editedNote;
         return formatted;
       });
-      totalNotes = formattedNotes.length;
     }
 
     delete propertyData.managerNotes;
@@ -808,26 +762,17 @@ const getPropertyWithNotes = asyncHandler(async (req, res, next) => {
       {
         userId: req.user.userId,
         status: 200,
-        body: {
-          success: true,
-          message: "Property with notes fetched successfully",
-        },
+        body: { success: true, message: "Property with notes fetched successfully" },
         requestBodyLog,
       },
       requestStartTime
     );
 
-    return sendEncodedResponse(
-      res,
-      200,
-      true,
-      "Property with notes fetched successfully",
-      {
-        property: propertyData,
-        notes: formattedNotes,
-        totalNotes: totalNotes,
-      }
-    );
+    return sendEncodedResponse(res, 200, true, "Property with notes fetched successfully", {
+      property: propertyData,
+      notes: formattedNotes,
+      totalNotes: formattedNotes.length,
+    });
   } catch (error) {
     await logRequest(
       req,
@@ -863,13 +808,7 @@ const getPropertyNotesByOwner = asyncHandler(async (req, res, next) => {
   try {
     const property = await Property.findOne({
       where: { propertyId, ownerId, isActive: true },
-      attributes: [
-        "propertyId",
-        "propertyType",
-        "city",
-        "state",
-        "microMarket",
-      ],
+      attributes: ["propertyId", "propertyType", "city", "state", "microMarket"],
       include: [
         {
           model: PropertyManagerNotes,
@@ -915,13 +854,7 @@ const getPropertyNotesByOwner = asyncHandler(async (req, res, next) => {
       requestStartTime
     );
 
-    return sendEncodedResponse(
-      res,
-      200,
-      true,
-      "Notes fetched successfully",
-      data
-    );
+    return sendEncodedResponse(res, 200, true, "Notes fetched successfully", data);
   } catch (error) {
     await logRequest(
       req,
@@ -938,6 +871,10 @@ const getPropertyNotesByOwner = asyncHandler(async (req, res, next) => {
     return next(error);
   }
 });
+
+// ============================================
+// 6) OWNER: VIEW ALL NOTES ON ALL THEIR PROPERTIES
+// ============================================
 
 /**
  * Owner can view all approved notes for all their properties in one list.
@@ -974,9 +911,11 @@ const getAllOwnerNotes = asyncHandler(async (req, res, next) => {
       if (propData.managerNotes) {
         propData.managerNotes.forEach((record) => {
           allNotes.push({
+            noteId: record.noteId,
             originalNote: record.notes,
             adminNote: record.isEdited ? record.editedNote : null,
             isEdited: record.isEdited,
+            status: record.status,
             createdAt: record.createdAt,
             updatedAt: record.updatedAt,
             propertyId: propData.propertyId,
@@ -987,8 +926,6 @@ const getAllOwnerNotes = asyncHandler(async (req, res, next) => {
               : "System",
           });
         });
-
-        allNotes.sort((a, b) => new Date(b.updatedAt) - new Date(a.updatedAt));
       }
     });
 
@@ -997,31 +934,21 @@ const getAllOwnerNotes = asyncHandler(async (req, res, next) => {
     await logRequest(
       req,
       {
-        userId: req.user.userId,
+        userId: ownerId,
         status: 200,
-        body: {
-          success: true,
-          message: "All owner notes fetched successfully",
-          count: allNotes.length,
-        },
+        body: { success: true, message: "All owner notes fetched successfully", count: allNotes.length },
       },
       requestStartTime
     );
 
-    return sendEncodedResponse(
-      res,
-      200,
-      true,
-      "All notes fetched successfully",
-      allNotes
-    );
+    return sendEncodedResponse(res, 200, true, "All notes fetched successfully", allNotes);
   } catch (error) {
     return next(error);
   }
 });
 
 // ============================================
-// 6) OWNER ADDS NOTE — directly approved, notifies admins
+// 7) OWNER ADDS NOTE — directly approved, notifies admins
 // ============================================
 
 /**
@@ -1057,107 +984,71 @@ const addOwnerNoteForProperty = asyncHandler(async (req, res, next) => {
     }
 
     if (property.isVerified === "completed") {
-      throw createAppError(
-        "Cannot add notes to a property that is fully verified",
-        403
-      );
+      throw createAppError("Cannot add notes to a property that is fully verified", 403);
     }
 
-    const transaction = await sequelize.transaction();
+    const noteRecord = await PropertyManagerNotes.create({
+      propertyId,
+      salesExecutiveId: ownerId,
+      notes: noteText,
+      status: "approved", // owner notes are always approved
+      isActive: true,
+      createdBy: ownerId,
+      updatedBy: ownerId,
+    });
 
+    // ── Notify Sales Exec + Admin + Super Admin + Sales Manager
     try {
-      let noteRecord = await PropertyManagerNotes.findOne({
-        where: { propertyId, salesExecutiveId: ownerId },
-        transaction,
-      });
+      const io = getIO();
+      const ownerName = `${req.user.firstName} ${req.user.lastName}`;
+      const message = `Property owner ${ownerName} added a note to their property in ${property.city}`;
+      const timestamp = new Date().toISOString();
 
-      let isNew = false;
+      const adminAndManagerIds = await getAdminAndManagerUserIds();
+      const recipientSet = new Set(adminAndManagerIds);
+      if (property.salesId && property.salesId !== ownerId) {
+        recipientSet.add(property.salesId);
+      }
+      const recipientIds = [...recipientSet];
 
-      if (!noteRecord) {
-        noteRecord = await PropertyManagerNotes.create(
-          {
+      if (recipientIds.length > 0) {
+        await PropertyNotificationEvent.bulkCreate(
+          recipientIds.map((uid) => ({
             propertyId,
-            salesExecutiveId: ownerId,
-            notes: noteText,
-            totalNotesCount: 1,
-            status: "approved", // owner notes are always approved
-            isActive: true,
-            createdBy: ownerId,
-            updatedBy: ownerId,
-          },
-          { transaction }
+            userId: uid,
+            notificationText: message,
+          }))
         );
-        isNew = true;
-      } else {
-        PropertyManagerNotes.markAsEdited(noteRecord, noteText, ownerId);
-        noteRecord.status = "approved";
-        noteRecord.totalNotesCount += 1;
-        await noteRecord.save({ transaction });
-      }
 
-      await transaction.commit();
-
-      // ── Socket: notify Sales Exec + Admin + Super Admin + Sales Manager
-      try {
-        const io = getIO();
-        const ownerName = `${req.user.firstName} ${req.user.lastName}`;
-        const message = `Property owner ${ownerName} added a note to their property in ${property.city}`;
-        const timestamp = new Date().toISOString();
-
-        // Admin + Super Admin + Sales Manager
-        const adminAndManagerIds = await getAdminAndManagerUserIds();
-
-        // Collect all unique recipient IDs (admin/managers + assigned sales exec)
-        const recipientSet = new Set(adminAndManagerIds);
-        if (property.salesId && property.salesId !== ownerId) {
-          recipientSet.add(property.salesId);
-        }
-        const recipientIds = [...recipientSet];
-
-        if (recipientIds.length > 0) {
-          await PropertyNotificationEvent.bulkCreate(
-            recipientIds.map((uid) => ({
-              propertyId,
-              userId: uid,
-              notificationText: message,
-            }))
-          );
-
-          recipientIds.forEach((uid) => {
-            io.to(`user:${uid}`).emit("property:owner_note_added", {
-              propertyId,
-              message,
-              addedBy: ownerId,
-              timestamp,
-            });
+        recipientIds.forEach((uid) => {
+          io.to(`user:${uid}`).emit("property:owner_note_added", {
+            propertyId,
+            noteId: noteRecord.noteId,
+            message,
+            addedBy: ownerId,
+            timestamp,
           });
-        }
-      } catch (notifErr) {
-        console.error(
-          "Notification failed in addOwnerNoteForProperty:",
-          notifErr.message
-        );
+        });
       }
-
-      await logRequest(
-        req,
-        {
-          userId: ownerId,
-          status: 201,
-          body: { success: true, message: "Note added successfully" },
-          requestBodyLog,
-        },
-        requestStartTime
-      );
-
-      return sendEncodedResponse(res, 201, true, "Note added successfully", {
-        note: noteText,
-        isEdited: !isNew,
-      });
-    } catch (error) {
-      await transaction.rollback();
-      throw error;
+    } catch (notifErr) {
+      console.error("Notification failed in addOwnerNoteForProperty:", notifErr.message);
     }
+
+    await logRequest(
+      req,
+      {
+        userId: ownerId,
+        status: 201,
+        body: { success: true, message: "Note added successfully" },
+        requestBodyLog,
+      },
+      requestStartTime
+    );
+
+    return sendEncodedResponse(res, 201, true, "Note added successfully", {
+      noteId: noteRecord.noteId,
+      note: noteText,
+    });
   } catch (error) {
     await logRequest(
       req,
@@ -1176,45 +1067,53 @@ const addOwnerNoteForProperty = asyncHandler(async (req, res, next) => {
 });
 
 // ============================================
-// DELETE NOTE
+// 8) DELETE NOTE (soft delete)
 // ============================================
 
 /**
- * Delete a note (soft delete via isActive = false).
- * Admin/Super Admin: delete any note by providing salesExecutiveId in body.
- * Sales Exec / Owner: delete their own note. Sales Exec can only delete pending/denied notes.
+ * Soft-deletes a note by noteId (sets isActive = false).
+ * - Admin / Super Admin: can delete any note.
+ * - Sales Exec: can only delete their own pending or denied notes.
+ * - Owner: can delete their own notes.
  */
 const deleteNote = asyncHandler(async (req, res, next) => {
   const requestStartTime = Date.now();
-  const { propertyId } = req.params;
+  const { noteId } = req.params;
   const userRole = req.userRole || req.user.role;
   const userId = req.user.userId;
 
-  let targetSalesExecutiveId = userId; // Default to self
+  const isAdmin = ["Admin", "Super Admin"].includes(userRole);
+  const isSalesExec = [
+    "Sales Executive - Property Manager",
+    "Sales Executive - Client Dealer",
+    "Sales Executive",
+  ].includes(userRole);
 
-  if (["Admin", "Super Admin"].includes(userRole)) {
-    if (req.body.salesExecutiveId) {
-      targetSalesExecutiveId = req.body.salesExecutiveId;
-    } else {
-      throw createAppError("salesExecutiveId is required for admins to delete a note", 400);
-    }
-  }
-
-  const requestBodyLog = { propertyId, salesExecutiveId: targetSalesExecutiveId };
+  const requestBodyLog = { noteId, callerRole: userRole };
 
   try {
     const noteRecord = await PropertyManagerNotes.findOne({
-      where: { propertyId, salesExecutiveId: targetSalesExecutiveId, isActive: true },
+      where: { noteId, isActive: true },
     });
 
     if (!noteRecord) {
       throw createAppError("Note not found or already deleted", 404);
     }
 
-    // Role-specific restrictions
-    if (["Sales Executive - Property Manager", "Sales Executive - Client Dealer", "Sales Executive"].includes(userRole)) {
-      if (noteRecord.status !== "pending_review" && noteRecord.status !== "denied" && noteRecord.status !== "declined") {
-        throw createAppError("Sales Executives can only delete pending or denied notes", 403);
+    // Sales Exec can only delete their own pending/denied notes
+    if (isSalesExec) {
+      if (noteRecord.salesExecutiveId !== userId) {
+        throw createAppError("You can only delete your own notes", 403);
+      }
+      if (!["pending", "denied"].includes(noteRecord.status)) {
+        throw createAppError("You can only delete notes that are pending or denied", 403);
+      }
+    }
+
+    // Owner can only delete their own notes
+    if (!isAdmin && !isSalesExec) {
+      if (noteRecord.salesExecutiveId !== userId) {
+        throw createAppError("You can only delete your own notes", 403);
       }
     }
 
@@ -1233,7 +1132,7 @@ const deleteNote = asyncHandler(async (req, res, next) => {
       requestStartTime
     );
 
-    return sendEncodedResponse(res, 200, true, "Note deleted successfully");
+    return sendEncodedResponse(res, 200, true, "Note deleted successfully", { noteId });
   } catch (error) {
     await logRequest(
       req,
@@ -1254,10 +1153,10 @@ const deleteNote = asyncHandler(async (req, res, next) => {
 module.exports = {
   createPropertyManagerNotes,
   approveOrEditNote,
+  deleteNote,
   getAllPropertiesWithNotes,
   getPropertyWithNotes,
   getPropertyNotesByOwner,
   getAllOwnerNotes,
   addOwnerNoteForProperty,
-  deleteNote,
 };

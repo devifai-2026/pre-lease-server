@@ -15,6 +15,7 @@ const {
 const {
   createPropertyManagerNotes,
   approveOrEditNote,
+  deleteNote,
   getAllPropertiesWithNotes,
   getPropertyWithNotes,
   getPropertyNotesByOwner,
@@ -107,12 +108,26 @@ router.post(
   createPropertyManagerNotes
 );
 
-// ✅ Approve / deny / edit a note (Admin / Super Admin only)
+// ✅ Approve / deny / edit a note by noteId (Admin / Super Admin only)
 router.patch(
-  "/notes/:propertyId/review",
+  "/notes/:noteId/review",
   authenticateUser,
   checkAdminOrSuperAdmin,
   approveOrEditNote
+);
+
+// ✅ Delete (soft delete) a note by noteId
+// Admin/Super Admin: any note; Sales Exec: only own pending/denied; Owner: own notes
+router.delete(
+  "/notes/:noteId",
+  authenticateUser,
+  checkRole([
+    "Admin",
+    "Super Admin",
+    "Sales Executive - Property Manager",
+    "Owner",
+  ]),
+  deleteNote
 );
 
 // ============================================
