@@ -14,6 +14,8 @@ const {
 } = require("../controllers/property");
 const {
   createPropertyManagerNotes,
+  approveOrEditNote,
+  deleteNote,
   getAllPropertiesWithNotes,
   getPropertyWithNotes,
   getPropertyNotesByOwner,
@@ -25,6 +27,7 @@ const {
   checkPermission,
   checkSalesPerson,
   checkRole,
+  checkAdminOrSuperAdmin,
 } = require("../middlewares/auth");
 const { multerUpload, uploadToGCS } = require("../middlewares/uploadGCS");
 
@@ -97,12 +100,34 @@ router.get("/properties/:propertyId", getPropertyById);
 // INVESTOR NOTES (Investor Role)
 // ============================================
 
-// ✅ Create/Add notes for a property (Investor only)
+// ✅ Create/Add notes for a property (Sales Exec / Admin)
 router.post(
   "/properties/:propertyId/notes",
   authenticateUser,
   checkPermission("PROPERTY_NOTES"),
   createPropertyManagerNotes
+);
+
+// ✅ Approve / deny / edit a note by noteId (Admin / Super Admin only)
+router.patch(
+  "/notes/:noteId/review",
+  authenticateUser,
+  checkAdminOrSuperAdmin,
+  approveOrEditNote
+);
+
+// ✅ Delete (soft delete) a note by noteId
+// Admin/Super Admin: any note; Sales Exec: only own pending/denied; Owner: own notes
+router.delete(
+  "/notes/:noteId",
+  authenticateUser,
+  checkRole([
+    "Admin",
+    "Super Admin",
+    "Sales Executive - Property Manager",
+    "Owner",
+  ]),
+  deleteNote
 );
 
 // ============================================
@@ -118,6 +143,7 @@ router.get(
     "Super Admin",
     "Sales Manager",
     "Sales Executive - Property Manager",
+    "Sales Executive - Client Dealer",
   ]),
   getAllPropertiesWithNotes
 );
@@ -131,6 +157,7 @@ router.get(
     "Super Admin",
     "Sales Manager",
     "Sales Executive - Property Manager",
+    "Sales Executive - Client Dealer",
   ]),
   getPropertyWithNotes
 );
@@ -148,7 +175,12 @@ router.get(
 );
 
 // ✅ Owner can see all notes for all their properties
-router.get("/owner/notes", authenticateUser, checkRole(["Owner"]), getAllOwnerNotes);
+router.get(
+  "/owner/notes",
+  authenticateUser,
+  checkRole(["Owner"]),
+  getAllOwnerNotes
+);
 
 // ✅ Owner can add notes to their property
 router.post(

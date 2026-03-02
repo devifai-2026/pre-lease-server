@@ -37,7 +37,7 @@ const getSignedUrl = async (gcsPath) => {
 
   const [url] = await bucket.file(gcsPath).getSignedUrl({
     version: "v4",
-    action: "read",   
+    action: "read",
     expires: Date.now() + expiryMs,
   });
 

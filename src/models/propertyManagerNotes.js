@@ -4,36 +4,31 @@ const { sequelize } = require("../config/dbConnection");
 const PropertyManagerNotes = sequelize.define(
   "PropertyManagerNotes",
   {
+    noteId: {
+      type: DataTypes.UUID,
+      defaultValue: DataTypes.UUIDV4,
+      allowNull: false,
+      primaryKey: true,
+    },
+
     propertyId: {
       type: DataTypes.UUID,
       allowNull: false,
-      primaryKey: true,
     },
+
+    // FK to the user who created this note (sales exec, admin, or owner)
     salesExecutiveId: {
       type: DataTypes.UUID,
       allowNull: false,
-      primaryKey: true,
     },
+
     notes: {
-      type: DataTypes.JSONB,
+      type: DataTypes.TEXT,
       allowNull: false,
-      defaultValue: [],
-      validate: {
-        isValidNotesArray(value) {
-          if (!Array.isArray(value)) {
-            throw new Error("notes must be an array");
-          }
-        },
-      },
-    },
-    totalNotesCount: {
-      type: DataTypes.INTEGER,
-      allowNull: false,
-      defaultValue: 0,
     },
 
     status: {
-      type: DataTypes.ENUM("pending", "approved"),
+      type: DataTypes.ENUM("pending", "approved", "denied"),
       allowNull: false,
       defaultValue: "approved",
     },
@@ -44,7 +39,7 @@ const PropertyManagerNotes = sequelize.define(
       defaultValue: true,
     },
 
-    // Nullable FK — who last edited this record
+    // Nullable FK — who edited this record (admin only)
     editedBy: {
       type: DataTypes.UUID,
       allowNull: true,
@@ -57,12 +52,37 @@ const PropertyManagerNotes = sequelize.define(
       allowNull: true,
       defaultValue: null,
     },
+
+    // Who created this note
+    createdBy: {
+      type: DataTypes.UUID,
+      allowNull: true,
+      defaultValue: null,
+    },
+
+    // Who last updated this note
+    updatedBy: {
+      type: DataTypes.UUID,
+      allowNull: true,
+      defaultValue: null,
+    },
+
+    // Whether this note has been edited by admin after creation
+    isEdited: {
+      type: DataTypes.BOOLEAN,
+      allowNull: false,
+      defaultValue: false,
+    },
+
+    // The admin-edited version of the note (null if not edited)
+    editedNote: {
+      type: DataTypes.TEXT,
+      allowNull: true,
+      defaultValue: null,
+    },
   },
   {
     tableName: "property_manager_notes",
-    // timestamps: true,    // ✅ Inherited from global config
-    // underscored: true,   // ✅ Inherited from global config
-    // freezeTableName: true, // ✅ Inherited from global config
   }
 );
 
@@ -71,33 +91,13 @@ const PropertyManagerNotes = sequelize.define(
 // ============================================
 
 /**
- * Add/Push new notes to existing array
- * @param {Object} noteRecord - The PropertyManagerNotes instance
- * @param {Array} newNotesArray - Array of new notes to push [{note: "...", createdAt: "..."}, ...]
- * @returns {Array} The newly added notes
+ * Get the current note text
+ * Returns editedNote if the note has been edited, otherwise returns original notes
  */
-PropertyManagerNotes.pushNotes = function (noteRecord, newNotesArray) {
-  if (!Array.isArray(newNotesArray)) {
-    throw new Error("newNotesArray must be an array");
-  }
-
-  // Add to existing notes array
-  noteRecord.notes = [...noteRecord.notes, ...newNotesArray];
-  noteRecord.totalNotesCount = noteRecord.notes.length;
-  noteRecord.changed("notes", true);
-
-  return newNotesArray;
-};
-
-/**
- * Get all notes sorted by latest first
- * @param {Object} noteRecord - The PropertyManagerNotes instance
- * @returns {Array} Array of note objects
- */
-PropertyManagerNotes.getAllNotes = function (noteRecord) {
-  return noteRecord.notes.sort(
-    (a, b) => new Date(b.createdAt) - new Date(a.createdAt)
-  );
+PropertyManagerNotes.getEffectiveNote = function (noteRecord) {
+  return noteRecord.isEdited && noteRecord.editedNote
+    ? noteRecord.editedNote
+    : noteRecord.notes;
 };
 
 module.exports = PropertyManagerNotes;

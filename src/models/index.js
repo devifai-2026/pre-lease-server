@@ -210,7 +210,7 @@ User.hasMany(SalesRelationship, {
 });
 
 // ============================================
-// PROPERTY INVESTOR NOTES ASSOCIATIONS
+// PROPERTY MANAGER NOTES ASSOCIATIONS
 // ============================================
 
 // Property <-> PropertyManagerNotes (One-to-Many)
@@ -235,7 +235,7 @@ PropertyManagerNotes.belongsTo(User, {
   as: "salesExecutive",
 });
 
-// User (Edited By) <-> PropertyManagerNotes (One-to-Many)  ← NEW
+// User (Edited By) <-> PropertyManagerNotes (One-to-Many)
 User.hasMany(PropertyManagerNotes, {
   foreignKey: "editedBy",
   as: "editedNotes",
@@ -245,7 +245,7 @@ PropertyManagerNotes.belongsTo(User, {
   as: "editor",
 });
 
-// User (Approved By) <-> PropertyManagerNotes (One-to-Many)  ← NEW
+// User (Approved By) <-> PropertyManagerNotes (One-to-Many)
 User.hasMany(PropertyManagerNotes, {
   foreignKey: "approvedBy",
   as: "approvedNotes",
@@ -254,6 +254,27 @@ PropertyManagerNotes.belongsTo(User, {
   foreignKey: "approvedBy",
   as: "approver",
 });
+
+// ✅ NEW — User (Created By) <-> PropertyManagerNotes (One-to-Many)
+User.hasMany(PropertyManagerNotes, {
+  foreignKey: "createdBy",
+  as: "createdNotes",
+});
+PropertyManagerNotes.belongsTo(User, {
+  foreignKey: "createdBy",
+  as: "creator",
+});
+
+// ✅ NEW — User (Updated By) <-> PropertyManagerNotes (One-to-Many)
+User.hasMany(PropertyManagerNotes, {
+  foreignKey: "updatedBy",
+  as: "updatedNotes",
+});
+PropertyManagerNotes.belongsTo(User, {
+  foreignKey: "updatedBy",
+  as: "updater",
+});
+
 
 // ============================================
 // AUDIT LOG ASSOCIATIONS

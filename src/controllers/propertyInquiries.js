@@ -21,57 +21,25 @@ const { Op } = require("sequelize");
 const createPropertyInquiry = asyncHandler(async (req, res, next) => {
   const requestStartTime = Date.now();
   const { propertyId } = req.params;
-  const { inquiries } = req.body;
+  const { inquiry, source, priority } = req.body;
   const inquirerId = req.user.userId;
 
   const requestBodyLog = {
     propertyId,
     inquirerId,
-    inquiriesCount: inquiries?.length || 0,
+    source,
   };
 
   try {
     // Validate inputs
-    if (!inquiries || !Array.isArray(inquiries)) {
-      throw createAppError("inquiries must be an array", 400);
+    if (!inquiry || typeof inquiry !== "string") {
+      throw createAppError("inquiry is required and must be a string", 400);
     }
-    if (inquiries.length === 0) {
-      throw createAppError("At least one inquiry is required", 400);
-    }
-    if (inquiries.length > 50) {
-      throw createAppError("Maximum 50 inquiries can be added at once", 400);
+    if (inquiry.trim().length === 0) {
+      throw createAppError("inquiry cannot be empty", 400);
     }
     if (!inquirerId) {
       throw createAppError("inquirerId is required", 400);
-    }
-
-    // Validate each inquiry
-    for (let i = 0; i < inquiries.length; i++) {
-      const inquiryItem = inquiries[i];
-      if (!inquiryItem.question || typeof inquiryItem.question !== "string") {
-        throw createAppError(
-          `Inquiry ${i}: question field is required and must be a string`,
-          400
-        );
-      }
-      if (inquiryItem.question.trim().length === 0) {
-        throw createAppError(`Inquiry ${i}: question cannot be empty`, 400);
-      }
-      if (inquiryItem.question.length > 5000) {
-        throw createAppError(
-          `Inquiry ${i}: question cannot exceed 5000 characters`,
-          400
-        );
-      }
-      if (inquiryItem.createdAt) {
-        const date = new Date(inquiryItem.createdAt);
-        if (isNaN(date.getTime())) {
-          throw createAppError(
-            `Inquiry ${i}: invalid createdAt date format`,
-            400
-          );
-        }
-      }
     }
 
     // Verify property exists
@@ -85,74 +53,67 @@ const createPropertyInquiry = asyncHandler(async (req, res, next) => {
 
     const transaction = await sequelize.transaction();
     try {
-      let inquiryRecord = await PropertyInquiry.findOne({
-        where: { propertyId, inquirerId },
+      let autoAssignedTo = null;
+
+      // Always create a new row
+      const inquiryRecord = await PropertyInquiry.create(
+        {
+          propertyId,
+          inquirerId,
+          inquiry: inquiry.trim(),
+          source: source || "direct",
+          priority: priority || "medium",
+        },
+        { transaction }
+      );
+
+      // If this CLIENT (inquirerId) already has a dealer assigned on any other
+      // inquiry (across any property), auto-assign this new inquiry to the same dealer.
+      // Only auto-assign if:
+      //   1. The dealer is still active (isActive: true)
+      //   2. The dealer still holds the "Sales Executive - Client Dealer" role
+      // If the most recent dealer is gone / changed role → leave unassigned (frontend decides).
+      const existingAssigned = await PropertyInquiry.findOne({
+        where: {
+          inquirerId,             // same CLIENT, not same property
+          assignedTo: { [Op.not]: null },
+          id: { [Op.ne]: inquiryRecord.id },
+        },
+        attributes: ["assignedTo"],
+        order: [["assignedAt", "DESC"]],
         transaction,
       });
 
-      let isNew = true;
-      let addedInquiries = [];
-      let autoAssignedTo = null;
-
-      if (inquiryRecord && inquiryRecord.status !== "closed") {
-        // UPDATE: Push to existing array
-        const inquiriesWithTimestamp = inquiries.map((inq) => ({
-          question: inq.question,
-          createdAt: inq.createdAt || new Date().toISOString(),
-        }));
-        PropertyInquiry.pushInquiries(inquiryRecord, inquiriesWithTimestamp);
-        await inquiryRecord.save({ transaction });
-        addedInquiries = inquiriesWithTimestamp;
-        isNew = false;
-      } else {
-        // CREATE NEW: No record OR closed
-        const inquiriesWithTimestamp = inquiries.map((inq) => ({
-          question: inq.question,
-          createdAt: inq.createdAt || new Date().toISOString(),
-        }));
-        inquiryRecord = await PropertyInquiry.create(
-          {
-            propertyId,
-            inquirerId,
-            inquiries: inquiriesWithTimestamp,
-            source: req.body.source || "direct",
-            status: "pending",
-          },
-          { transaction }
-        );
-        addedInquiries = inquiriesWithTimestamp;
-
-        // If this CLIENT (inquirerId) already has a dealer assigned on any other
-        // inquiry (across any property), auto-assign this new inquiry to the same dealer
-        const existingAssigned = await PropertyInquiry.findOne({
-          where: {
-            inquirerId,                          // ← same CLIENT, not same property
-            assignedTo: { [Op.not]: null },
-            status: { [Op.notIn]: ["closed"] },
-            id: { [Op.ne]: inquiryRecord.id },
-          },
-          attributes: ["assignedTo"],
-          order: [["assignedAt", "DESC"]],
-          transaction,
+      if (existingAssigned) {
+        // Verify the previously assigned dealer is still active AND still a Client Dealer
+        const assigneeActive = await User.findOne({
+          where: { userId: existingAssigned.assignedTo, isActive: true },
+          include: [
+            {
+              model: Role,
+              as: "roles",
+              where: {
+                roleName: "Sales Executive - Client Dealer",
+                isActive: true,
+              },
+              required: true,
+              through: { attributes: [] },
+              attributes: [],
+            },
+          ],
         });
 
-        if (existingAssigned) {
-          // Verify the previously assigned user is still active
-          const assigneeActive = await User.findOne({
-            where: { userId: existingAssigned.assignedTo, isActive: true },
-          });
-          if (assigneeActive) {
-            await inquiryRecord.update(
-              {
-                assignedTo: existingAssigned.assignedTo,
-                assignedAt: new Date(),
-                status: "assigned",
-              },
-              { transaction }
-            );
-            autoAssignedTo = existingAssigned.assignedTo;
-          }
+        if (assigneeActive) {
+          await inquiryRecord.update(
+            {
+              assignedTo: existingAssigned.assignedTo,
+              assignedAt: new Date(),
+            },
+            { transaction }
+          );
+          autoAssignedTo = existingAssigned.assignedTo;
         }
+        // If dealer is inactive or role changed → leave assignedTo = null, frontend decides
       }
 
       await transaction.commit();
@@ -225,23 +186,6 @@ const createPropertyInquiry = asyncHandler(async (req, res, next) => {
           });
         }
 
-        // Notify existing assigned dealer when client adds more questions to an open inquiry
-        if (!isNew && inquiryRecord.assignedTo) {
-          const dealerMessage = `${inquirerName} has added new questions to an existing inquiry for property in ${property.city}.`;
-          const dealerNotif = await PropertyNotificationEvent.create({
-            propertyId: property.propertyId,
-            userId: inquiryRecord.assignedTo,
-            notificationText: dealerMessage,
-          });
-
-          io.to(`user:${inquiryRecord.assignedTo}`).emit("inquiry:updated", {
-            id: dealerNotif.id,
-            inquiryId: inquiryRecord.id,
-            propertyId: property.propertyId,
-            message: dealerMessage,
-            timestamp,
-          });
-        }
       } catch (notifErr) {
         console.error(
           "Notification failed in createPropertyInquiry:",
@@ -253,11 +197,10 @@ const createPropertyInquiry = asyncHandler(async (req, res, next) => {
         req,
         {
           userId: inquirerId,
-          status: isNew ? 201 : 200,
+          status: 201,
           body: {
             success: true,
-            message: isNew ? "New inquiry created" : "Inquiry updated",
-            inquiriesAdded: addedInquiries.length,
+            message: "Inquiry created successfully",
           },
         },
         requestStartTime,
@@ -266,15 +209,14 @@ const createPropertyInquiry = asyncHandler(async (req, res, next) => {
 
       return sendEncodedResponse(
         res,
-        isNew ? 201 : 200,
+        201,
         true,
-        isNew ? "New inquiry created" : "Inquiry updated successfully",
+        "Inquiry created successfully",
         {
           inquiryId: inquiryRecord.id,
-          inquiriesAdded: addedInquiries.length,
-          addedInquiries,
-          isNew,
-          status: inquiryRecord.status,
+          inquiry: inquiryRecord.inquiry,
+          priority: inquiryRecord.priority,
+          autoAssignedTo: autoAssignedTo || null,
         }
       );
     } catch (error) {
@@ -325,9 +267,6 @@ const assignInquiry = asyncHandler(async (req, res, next) => {
 
     if (!inquiry) {
       throw createAppError("Inquiry not found", 404);
-    }
-    if (["closed", "converted"].includes(inquiry.status)) {
-      throw createAppError("Cannot assign a closed or converted inquiry", 400);
     }
 
     if (!assignedTo) {
@@ -397,7 +336,6 @@ const assignInquiry = asyncHandler(async (req, res, next) => {
         assignedTo,
         assignedBy: adminId,
         assignedAt: new Date(),
-        status: "assigned",
       },
       { transaction }
     );
@@ -413,18 +351,26 @@ const assignInquiry = asyncHandler(async (req, res, next) => {
       // Fetch old assignee name if reassigning
       let oldAssigneeName = null;
       if (isReassign && oldAssignedTo) {
-        const oldAssignee = await User.findByPk(oldAssignedTo, { attributes: ["firstName", "lastName"] });
-        if (oldAssignee) oldAssigneeName = `${oldAssignee.firstName} ${oldAssignee.lastName}`;
+        const oldAssignee = await User.findByPk(oldAssignedTo, {
+          attributes: ["firstName", "lastName"],
+        });
+        if (oldAssignee)
+          oldAssigneeName = `${oldAssignee.firstName} ${oldAssignee.lastName}`;
       }
 
       // Fetch admins & super admins
       const adminUsers = await User.findAll({
-        include: [{
-          model: Role,
-          as: "roles",
-          where: { roleName: { [Op.in]: ["Admin", "Super Admin"] }, isActive: true },
-          through: { attributes: [] },
-        }],
+        include: [
+          {
+            model: Role,
+            as: "roles",
+            where: {
+              roleName: { [Op.in]: ["Admin", "Super Admin"] },
+              isActive: true,
+            },
+            through: { attributes: [] },
+          },
+        ],
         attributes: ["userId"],
         raw: true,
       });
@@ -450,20 +396,37 @@ const assignInquiry = asyncHandler(async (req, res, next) => {
       const newMessage = isReassign
         ? `An inquiry for property in ${city} has been reassigned to you by ${assignerName}.`
         : `A new inquiry for property in ${city} has been assigned to you by ${assignerName}.`;
-      notificationRecords.push({ propertyId: inquiry.propertyId, userId: assignedTo, notificationText: newMessage });
+      notificationRecords.push({
+        propertyId: inquiry.propertyId,
+        userId: assignedTo,
+        notificationText: newMessage,
+      });
       io.to(`user:${assignedTo}`).emit("inquiry:assigned", {
-        inquiryId: inquiry.id, propertyId: inquiry.propertyId,
-        message: newMessage, assignedBy: adminId, assignedByName: assignerName, timestamp,
+        inquiryId: inquiry.id,
+        propertyId: inquiry.propertyId,
+        message: newMessage,
+        assignedBy: adminId,
+        assignedByName: assignerName,
+        timestamp,
       });
 
       // Notify old assignee
       if (isReassign && oldAssignedTo) {
         const oldMessage = `An inquiry for property in ${city} has been reassigned to ${newAssigneeName} by ${assignerName}.`;
-        notificationRecords.push({ propertyId: inquiry.propertyId, userId: oldAssignedTo, notificationText: oldMessage });
+        notificationRecords.push({
+          propertyId: inquiry.propertyId,
+          userId: oldAssignedTo,
+          notificationText: oldMessage,
+        });
         io.to(`user:${oldAssignedTo}`).emit("inquiry:unassigned", {
-          inquiryId: inquiry.id, propertyId: inquiry.propertyId,
-          message: oldMessage, reassignedBy: adminId, reassignedByName: assignerName,
-          reassignedTo: assignedTo, reassignedToName: newAssigneeName, timestamp,
+          inquiryId: inquiry.id,
+          propertyId: inquiry.propertyId,
+          message: oldMessage,
+          reassignedBy: adminId,
+          reassignedByName: assignerName,
+          reassignedTo: assignedTo,
+          reassignedToName: newAssigneeName,
+          timestamp,
         });
       }
 
@@ -473,24 +436,46 @@ const assignInquiry = asyncHandler(async (req, res, next) => {
         : `A new inquiry for property in ${city} has been assigned to ${newAssigneeName} by ${assignerName}.`;
       for (const aId of adminIds) {
         if (aId === adminId) continue; // skip if assigner is admin
-        notificationRecords.push({ propertyId: inquiry.propertyId, userId: aId, notificationText: adminMessage });
+        notificationRecords.push({
+          propertyId: inquiry.propertyId,
+          userId: aId,
+          notificationText: adminMessage,
+        });
         io.to(`user:${aId}`).emit("inquiry:assigned", {
-          inquiryId: inquiry.id, propertyId: inquiry.propertyId,
-          message: adminMessage, assignedTo, assignedToName: newAssigneeName,
-          assignedBy: adminId, assignedByName: assignerName, timestamp,
+          inquiryId: inquiry.id,
+          propertyId: inquiry.propertyId,
+          message: adminMessage,
+          assignedTo,
+          assignedToName: newAssigneeName,
+          assignedBy: adminId,
+          assignedByName: assignerName,
+          timestamp,
         });
       }
 
       // Notify sales manager of new assignee
-      if (salesManagerId && salesManagerId !== adminId && !adminIds.includes(salesManagerId)) {
+      if (
+        salesManagerId &&
+        salesManagerId !== adminId &&
+        !adminIds.includes(salesManagerId)
+      ) {
         const smMessage = isReassign
           ? `Inquiry for property in ${city} has been reassigned from ${oldAssigneeName || "unassigned"} to ${newAssigneeName} by ${assignerName}.`
           : `A new inquiry for property in ${city} has been assigned to ${newAssigneeName} by ${assignerName}.`;
-        notificationRecords.push({ propertyId: inquiry.propertyId, userId: salesManagerId, notificationText: smMessage });
+        notificationRecords.push({
+          propertyId: inquiry.propertyId,
+          userId: salesManagerId,
+          notificationText: smMessage,
+        });
         io.to(`user:${salesManagerId}`).emit("inquiry:assigned", {
-          inquiryId: inquiry.id, propertyId: inquiry.propertyId,
-          message: smMessage, assignedTo, assignedToName: newAssigneeName,
-          assignedBy: adminId, assignedByName: assignerName, timestamp,
+          inquiryId: inquiry.id,
+          propertyId: inquiry.propertyId,
+          message: smMessage,
+          assignedTo,
+          assignedToName: newAssigneeName,
+          assignedBy: adminId,
+          assignedByName: assignerName,
+          timestamp,
         });
       }
 
@@ -503,15 +488,26 @@ const assignInquiry = asyncHandler(async (req, res, next) => {
         oldSalesManagerId !== salesManagerId
       ) {
         const oldSmMessage = `Inquiry for property in ${city} has been reassigned from ${oldAssigneeName || "the previous dealer"} to ${newAssigneeName} by ${assignerName}.`;
-        notificationRecords.push({ propertyId: inquiry.propertyId, userId: oldSalesManagerId, notificationText: oldSmMessage });
+        notificationRecords.push({
+          propertyId: inquiry.propertyId,
+          userId: oldSalesManagerId,
+          notificationText: oldSmMessage,
+        });
         io.to(`user:${oldSalesManagerId}`).emit("inquiry:unassigned", {
-          inquiryId: inquiry.id, propertyId: inquiry.propertyId,
-          message: oldSmMessage, reassignedBy: adminId, reassignedByName: assignerName,
-          reassignedTo: assignedTo, reassignedToName: newAssigneeName, timestamp,
+          inquiryId: inquiry.id,
+          propertyId: inquiry.propertyId,
+          message: oldSmMessage,
+          reassignedBy: adminId,
+          reassignedByName: assignerName,
+          reassignedTo: assignedTo,
+          reassignedToName: newAssigneeName,
+          timestamp,
         });
       }
 
-      await PropertyNotificationEvent.bulkCreate(notificationRecords, { transaction });
+      await PropertyNotificationEvent.bulkCreate(notificationRecords, {
+        transaction,
+      });
     } catch (err) {
       console.error("Notification failed in assignInquiry:", err.message);
     }
@@ -538,7 +534,9 @@ const assignInquiry = asyncHandler(async (req, res, next) => {
       res,
       200,
       true,
-      isReassign ? "Inquiry reassigned successfully" : "Inquiry assigned successfully",
+      isReassign
+        ? "Inquiry reassigned successfully"
+        : "Inquiry assigned successfully",
       {
         inquiryId: inquiry.id,
         assignedTo,
@@ -617,7 +615,10 @@ const autoAssignInquiry = asyncHandler(async (req, res, next) => {
     });
 
     if (clientDealers.length === 0) {
-      throw createAppError("No active assignable users (Sales Manager / Client Dealer) found", 404);
+      throw createAppError(
+        "No active assignable users (Sales Manager / Client Dealer) found",
+        404
+      );
     }
 
     const dealerIds = clientDealers.map((u) => u.userId);
@@ -628,7 +629,6 @@ const autoAssignInquiry = asyncHandler(async (req, res, next) => {
     const assignmentCounts = await PropertyInquiry.findAll({
       where: {
         assignedTo: { [Op.in]: dealerIds },
-        status: { [Op.ne]: "closed" }, // Optional: only count active work
       },
       attributes: [
         "assignedTo",
@@ -657,7 +657,6 @@ const autoAssignInquiry = asyncHandler(async (req, res, next) => {
         assignedTo: bestDealerId,
         assignedBy: adminId,
         assignedAt: new Date(),
-        status: "assigned",
       },
       { transaction }
     );
@@ -671,17 +670,26 @@ const autoAssignInquiry = asyncHandler(async (req, res, next) => {
       const notificationRecords = [];
 
       // Fetch best dealer name
-      const bestDealer = await User.findByPk(bestDealerId, { attributes: ["firstName", "lastName"] });
-      const bestDealerName = bestDealer ? `${bestDealer.firstName} ${bestDealer.lastName}` : "a Sales Executive";
+      const bestDealer = await User.findByPk(bestDealerId, {
+        attributes: ["firstName", "lastName"],
+      });
+      const bestDealerName = bestDealer
+        ? `${bestDealer.firstName} ${bestDealer.lastName}`
+        : "a Sales Executive";
 
       // Fetch admins & super admins
       const adminUsers = await User.findAll({
-        include: [{
-          model: Role,
-          as: "roles",
-          where: { roleName: { [Op.in]: ["Admin", "Super Admin"] }, isActive: true },
-          through: { attributes: [] },
-        }],
+        include: [
+          {
+            model: Role,
+            as: "roles",
+            where: {
+              roleName: { [Op.in]: ["Admin", "Super Admin"] },
+              isActive: true,
+            },
+            through: { attributes: [] },
+          },
+        ],
         attributes: ["userId"],
         raw: true,
       });
@@ -698,36 +706,68 @@ const autoAssignInquiry = asyncHandler(async (req, res, next) => {
 
       // Notify dealer (new assignee)
       const dealerMessage = `A new inquiry for property in ${inquiryCity} has been auto-assigned to you by ${adminName}.`;
-      notificationRecords.push({ propertyId: inquiry.propertyId, userId: bestDealerId, notificationText: dealerMessage });
+      notificationRecords.push({
+        propertyId: inquiry.propertyId,
+        userId: bestDealerId,
+        notificationText: dealerMessage,
+      });
       io.to(`user:${bestDealerId}`).emit("inquiry:assigned", {
-        inquiryId: inquiry.id, propertyId: inquiry.propertyId,
-        message: dealerMessage, assignedBy: adminId, assignedByName: adminName, timestamp,
+        inquiryId: inquiry.id,
+        propertyId: inquiry.propertyId,
+        message: dealerMessage,
+        assignedBy: adminId,
+        assignedByName: adminName,
+        timestamp,
       });
 
       // Notify admins & super admins
       const adminMessage = `An inquiry for property in ${inquiryCity} has been auto-assigned to ${bestDealerName} by ${adminName}.`;
       for (const aId of adminIds) {
         if (aId === adminId) continue;
-        notificationRecords.push({ propertyId: inquiry.propertyId, userId: aId, notificationText: adminMessage });
+        notificationRecords.push({
+          propertyId: inquiry.propertyId,
+          userId: aId,
+          notificationText: adminMessage,
+        });
         io.to(`user:${aId}`).emit("inquiry:assigned", {
-          inquiryId: inquiry.id, propertyId: inquiry.propertyId,
-          message: adminMessage, assignedTo: bestDealerId, assignedToName: bestDealerName,
-          assignedBy: adminId, assignedByName: adminName, timestamp,
+          inquiryId: inquiry.id,
+          propertyId: inquiry.propertyId,
+          message: adminMessage,
+          assignedTo: bestDealerId,
+          assignedToName: bestDealerName,
+          assignedBy: adminId,
+          assignedByName: adminName,
+          timestamp,
         });
       }
 
       // Notify sales manager
-      if (salesManagerId && salesManagerId !== adminId && !adminIds.includes(salesManagerId)) {
+      if (
+        salesManagerId &&
+        salesManagerId !== adminId &&
+        !adminIds.includes(salesManagerId)
+      ) {
         const smMessage = `An inquiry for property in ${inquiryCity} has been auto-assigned to ${bestDealerName} by ${adminName}.`;
-        notificationRecords.push({ propertyId: inquiry.propertyId, userId: salesManagerId, notificationText: smMessage });
+        notificationRecords.push({
+          propertyId: inquiry.propertyId,
+          userId: salesManagerId,
+          notificationText: smMessage,
+        });
         io.to(`user:${salesManagerId}`).emit("inquiry:assigned", {
-          inquiryId: inquiry.id, propertyId: inquiry.propertyId,
-          message: smMessage, assignedTo: bestDealerId, assignedToName: bestDealerName,
-          assignedBy: adminId, assignedByName: adminName, timestamp,
+          inquiryId: inquiry.id,
+          propertyId: inquiry.propertyId,
+          message: smMessage,
+          assignedTo: bestDealerId,
+          assignedToName: bestDealerName,
+          assignedBy: adminId,
+          assignedByName: adminName,
+          timestamp,
         });
       }
 
-      await PropertyNotificationEvent.bulkCreate(notificationRecords, { transaction });
+      await PropertyNotificationEvent.bulkCreate(notificationRecords, {
+        transaction,
+      });
     } catch (err) {
       console.error("Notification failed in autoAssignInquiry:", err.message);
     }
@@ -787,7 +827,7 @@ const getPendingInquiries = asyncHandler(async (req, res) => {
   const offset = (pageNumber - 1) * pageSize;
 
   const whereClause = {
-    status: "pending",
+    assignedTo: null,
     ...(priority && { priority }),
   };
 
@@ -803,7 +843,7 @@ const getPendingInquiries = asyncHandler(async (req, res) => {
       {
         model: User,
         as: "inquirer",
-        attributes: ["user_id", "firstName", "lastName", "email"],
+        attributes: ["userId", "firstName", "lastName", "email"],
         required: true,
       },
     ],
@@ -839,15 +879,13 @@ const getPendingInquiries = asyncHandler(async (req, res) => {
 const getAssignedInquiries = asyncHandler(async (req, res) => {
   const userId = req.user.userId;
   const userRole = req.userRole || req.user.role;
-  const { status, page = 1, limit = 10 } = req.query;
+  const { page = 1, limit = 10 } = req.query;
 
   const pageNumber = parseInt(page);
   const pageSize = parseInt(limit);
   const offset = (pageNumber - 1) * pageSize;
 
   const whereClause = {};
-  if (status) whereClause.status = status;
-
   if (["Admin", "Super Admin"].includes(userRole)) {
     // Admin/Super Admin see all inquiries (no assignedTo filter)
   } else if (userRole === "Sales Manager") {

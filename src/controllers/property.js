@@ -278,7 +278,10 @@ const createProperty = asyncHandler(async (req, res, next) => {
           model: Role,
           as: "roles",
           through: { attributes: [] },
-          where: { roleName: "Sales Executive - Property Manager", isActive: true },
+          where: {
+            roleName: "Sales Executive - Property Manager",
+            isActive: true,
+          },
           attributes: [],
         },
       ],
@@ -365,8 +368,8 @@ const createProperty = asyncHandler(async (req, res, next) => {
         otherCostsAnnual: otherCostsAnnual || null,
         totalOperatingAnnualCosts:
           parseFloat(propertyTaxAnnual || 0) +
-          parseFloat(insuranceAnnual || 0) +
-          parseFloat(otherCostsAnnual || 0) || null,
+            parseFloat(insuranceAnnual || 0) +
+            parseFloat(otherCostsAnnual || 0) || null,
         additionalIncomeAnnual: additionalIncomeAnnual || null,
         annualGrossRent: annualGrossRent || null,
         grossRentalYield: grossRentalYield || null,
@@ -590,40 +593,63 @@ const createProperty = asyncHandler(async (req, res, next) => {
         const message = assignedSalesId
           ? `${creatorName} has added a new property in ${city}. It has been auto-assigned to ${executiveName}.`
           : `${creatorName} has added a new property in ${city}. No Sales Executive was available for auto-assignment.`;
-        notificationRecords.push({ propertyId: propId, userId: adminId, notificationText: message });
+        notificationRecords.push({
+          propertyId: propId,
+          userId: adminId,
+          notificationText: message,
+        });
         io.to(`user:${adminId}`).emit("property:created", {
-          propertyId: propId, message, city,
+          propertyId: propId,
+          message,
+          city,
           propertyType: result.property.propertyType,
-          createdBy: createdByUserId, assignedTo: assignedSalesId, timestamp,
+          createdBy: createdByUserId,
+          assignedTo: assignedSalesId,
+          timestamp,
         });
       }
 
       // Notify assigned Sales Executive
       if (assignedSalesId) {
         const message = `A new property in ${city} has been auto-assigned to you by the system (added by ${creatorName}).`;
-        notificationRecords.push({ propertyId: propId, userId: assignedSalesId, notificationText: message });
+        notificationRecords.push({
+          propertyId: propId,
+          userId: assignedSalesId,
+          notificationText: message,
+        });
         io.to(`user:${assignedSalesId}`).emit("property:created", {
-          propertyId: propId, message, city,
+          propertyId: propId,
+          message,
+          city,
           propertyType: result.property.propertyType,
-          assignedBy: "system", createdBy: createdByUserId, timestamp,
+          assignedBy: "system",
+          createdBy: createdByUserId,
+          timestamp,
         });
       }
 
       // Notify Sales Manager
       if (salesManagerId) {
         const message = `${creatorName} has added a new property in ${city}. It has been auto-assigned to ${executiveName} in your team.`;
-        notificationRecords.push({ propertyId: propId, userId: salesManagerId, notificationText: message });
+        notificationRecords.push({
+          propertyId: propId,
+          userId: salesManagerId,
+          notificationText: message,
+        });
         io.to(`user:${salesManagerId}`).emit("property:created", {
-          propertyId: propId, message, city,
+          propertyId: propId,
+          message,
+          city,
           propertyType: result.property.propertyType,
-          assignedTo: assignedSalesId, createdBy: createdByUserId, timestamp,
+          assignedTo: assignedSalesId,
+          createdBy: createdByUserId,
+          timestamp,
         });
       }
 
       if (notificationRecords.length > 0) {
         await PropertyNotificationEvent.bulkCreate(notificationRecords);
       }
-
     } catch (socketErr) {
       console.error("Notification/Socket failed:", socketErr.message);
     }
@@ -761,7 +787,11 @@ const updateProperty = asyncHandler(async (req, res, next) => {
       delete updateData.otherAmenities;
     }
 
-    if (caretakerId !== undefined && caretakerId !== "" && caretakerId !== "null") {
+    if (
+      caretakerId !== undefined &&
+      caretakerId !== "" &&
+      caretakerId !== "null"
+    ) {
       if (caretakerId !== null) {
         const caretaker = await Caretaker.findOne({
           where: { caretakerId, isActive: true },
@@ -1534,7 +1564,9 @@ const getAllProperties = asyncHandler(async (req, res, next) => {
           as: "amenities",
           attributes: ["amenityId", "amenityName"],
           through: { attributes: [] },
-          where: amenityIds ? { amenityId: { [Op.in]: amenityIds.split(",") }, isActive: true } : { isActive: true },
+          where: amenityIds
+            ? { amenityId: { [Op.in]: amenityIds.split(",") }, isActive: true }
+            : { isActive: true },
           required: amenityIds ? true : false,
         },
         {
@@ -1567,7 +1599,13 @@ const getAllProperties = asyncHandler(async (req, res, next) => {
         {
           model: PropertyVerificationLog,
           as: "verificationLogs",
-          attributes: ["id", "userId", "status", "roleAtVerification", "createdAt"],
+          attributes: [
+            "id",
+            "userId",
+            "status",
+            "roleAtVerification",
+            "createdAt",
+          ],
           where: { status: "verified" },
           required: false,
           include: [
@@ -1607,7 +1645,9 @@ const getAllProperties = asyncHandler(async (req, res, next) => {
           propertyData.media = await attachSignedUrls(propertyData.media);
         }
 
-        propertyData.verificationLogs = (propertyData.verificationLogs || []).map((log) => ({
+        propertyData.verificationLogs = (
+          propertyData.verificationLogs || []
+        ).map((log) => ({
           id: log.id,
           userId: log.verifiedBy?.userId,
           name: `${log.verifiedBy?.firstName} ${log.verifiedBy?.lastName}`,
@@ -1930,7 +1970,13 @@ const getAssignedProperties = asyncHandler(async (req, res, next) => {
         {
           model: PropertyVerificationLog,
           as: "verificationLogs",
-          attributes: ["id", "userId", "status", "roleAtVerification", "createdAt"],
+          attributes: [
+            "id",
+            "userId",
+            "status",
+            "roleAtVerification",
+            "createdAt",
+          ],
           where: { status: "verified" },
           required: false,
           include: [
@@ -1970,7 +2016,9 @@ const getAssignedProperties = asyncHandler(async (req, res, next) => {
           propertyData.media = await attachSignedUrls(propertyData.media);
         }
 
-        propertyData.verificationLogs = (propertyData.verificationLogs || []).map((log) => ({
+        propertyData.verificationLogs = (
+          propertyData.verificationLogs || []
+        ).map((log) => ({
           id: log.id,
           userId: log.verifiedBy?.userId,
           name: `${log.verifiedBy?.firstName} ${log.verifiedBy?.lastName}`,
@@ -2126,7 +2174,13 @@ const getPropertyById = asyncHandler(async (req, res, next) => {
         {
           model: PropertyVerificationLog,
           as: "verificationLogs",
-          attributes: ["id", "userId", "status", "roleAtVerification", "createdAt"],
+          attributes: [
+            "id",
+            "userId",
+            "status",
+            "roleAtVerification",
+            "createdAt",
+          ],
           where: { status: "verified" },
           required: false,
           include: [
@@ -2152,14 +2206,16 @@ const getPropertyById = asyncHandler(async (req, res, next) => {
       propertyData.media = await attachSignedUrls(propertyData.media);
     }
 
-    propertyData.verificationLogs = (propertyData.verificationLogs || []).map((log) => ({
-      id: log.id,
-      userId: log.verifiedBy?.userId,
-      name: `${log.verifiedBy?.firstName} ${log.verifiedBy?.lastName}`,
-      email: log.verifiedBy?.email,
-      role: log.roleAtVerification || null,
-      verifiedAt: log.createdAt,
-    }));
+    propertyData.verificationLogs = (propertyData.verificationLogs || []).map(
+      (log) => ({
+        id: log.id,
+        userId: log.verifiedBy?.userId,
+        name: `${log.verifiedBy?.firstName} ${log.verifiedBy?.lastName}`,
+        email: log.verifiedBy?.email,
+        role: log.roleAtVerification || null,
+        verifiedAt: log.createdAt,
+      })
+    );
 
     // Calculate tenure left
     if (propertyData.leaseEndDate) {
