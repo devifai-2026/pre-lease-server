@@ -669,7 +669,17 @@ const getPropertyWithNotes = asyncHandler(async (req, res, next) => {
       teamIds.push(salesExecutiveId);
       notesWhere.salesExecutiveId = { [Op.in]: teamIds };
     } else {
-      notesWhere.salesExecutiveId = salesExecutiveId;
+      // Dealer: see own notes + owner/client notes
+      const dealerNoteIds = [salesExecutiveId];
+      const propForOwner = await Property.findOne({
+        where: { propertyId, isActive: true },
+        attributes: ["ownerId"],
+        raw: true,
+      });
+      if (propForOwner && propForOwner.ownerId) {
+        dealerNoteIds.push(propForOwner.ownerId);
+      }
+      notesWhere.salesExecutiveId = { [Op.in]: dealerNoteIds };
     }
 
     const property = await Property.findOne({
@@ -692,6 +702,7 @@ const getPropertyWithNotes = asyncHandler(async (req, res, next) => {
         "sellingStatus",
         "isVerified",
         "description",
+        "ownerId",
         "createdAt",
         "updatedAt",
       ],
@@ -745,10 +756,12 @@ const getPropertyWithNotes = asyncHandler(async (req, res, next) => {
 
     let formattedNotes = [];
     if (propertyData.managerNotes && propertyData.managerNotes.length > 0) {
+      const ownerId = propertyData.owner?.userId || propertyData.ownerId || null;
       formattedNotes = propertyData.managerNotes.map((record) => {
         const formatted = { ...record };
         formatted.originalNote = record.notes;
         formatted.adminNote = record.isEdited ? record.editedNote : null;
+        formatted.isOwnerNote = ownerId ? record.salesExecutiveId === ownerId : false;
         delete formatted.notes;
         delete formatted.editedNote;
         return formatted;
