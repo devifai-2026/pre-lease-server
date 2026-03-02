@@ -667,6 +667,15 @@ const getPropertyWithNotes = asyncHandler(async (req, res, next) => {
       });
       const teamIds = relationships.map((r) => r.salesExecutiveId);
       teamIds.push(salesExecutiveId);
+      // Also include owner/client notes
+      const propForOwner = await Property.findOne({
+        where: { propertyId, isActive: true },
+        attributes: ["ownerId"],
+        raw: true,
+      });
+      if (propForOwner && propForOwner.ownerId) {
+        teamIds.push(propForOwner.ownerId);
+      }
       notesWhere.salesExecutiveId = { [Op.in]: teamIds };
     } else {
       // Dealer: see own notes + owner/client notes
