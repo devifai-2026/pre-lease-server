@@ -128,6 +128,7 @@ router.get(
     "Super Admin",
     "Sales Manager",
     "Sales Executive - Property Manager",
+    "Sales Executive - Client Dealer",
   ]),
   getAllPropertiesWithNotes
 );
@@ -141,6 +142,7 @@ router.get(
     "Super Admin",
     "Sales Manager",
     "Sales Executive - Property Manager",
+    "Sales Executive - Client Dealer",
   ]),
   getPropertyWithNotes
 );

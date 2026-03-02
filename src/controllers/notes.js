@@ -1175,6 +1175,82 @@ const addOwnerNoteForProperty = asyncHandler(async (req, res, next) => {
   }
 });
 
+// ============================================
+// DELETE NOTE
+// ============================================
+
+/**
+ * Delete a note (soft delete via isActive = false).
+ * Admin/Super Admin: delete any note by providing salesExecutiveId in body.
+ * Sales Exec / Owner: delete their own note. Sales Exec can only delete pending/denied notes.
+ */
+const deleteNote = asyncHandler(async (req, res, next) => {
+  const requestStartTime = Date.now();
+  const { propertyId } = req.params;
+  const userRole = req.userRole || req.user.role;
+  const userId = req.user.userId;
+
+  let targetSalesExecutiveId = userId; // Default to self
+
+  if (["Admin", "Super Admin"].includes(userRole)) {
+    if (req.body.salesExecutiveId) {
+      targetSalesExecutiveId = req.body.salesExecutiveId;
+    } else {
+      throw createAppError("salesExecutiveId is required for admins to delete a note", 400);
+    }
+  }
+
+  const requestBodyLog = { propertyId, salesExecutiveId: targetSalesExecutiveId };
+
+  try {
+    const noteRecord = await PropertyManagerNotes.findOne({
+      where: { propertyId, salesExecutiveId: targetSalesExecutiveId, isActive: true },
+    });
+
+    if (!noteRecord) {
+      throw createAppError("Note not found or already deleted", 404);
+    }
+
+    // Role-specific restrictions
+    if (["Sales Executive - Property Manager", "Sales Executive - Client Dealer", "Sales Executive"].includes(userRole)) {
+      if (noteRecord.status !== "pending_review" && noteRecord.status !== "denied" && noteRecord.status !== "declined") {
+        throw createAppError("Sales Executives can only delete pending or denied notes", 403);
+      }
+    }
+
+    noteRecord.isActive = false;
+    noteRecord.updatedBy = userId;
+    await noteRecord.save();
+
+    await logRequest(
+      req,
+      {
+        userId,
+        status: 200,
+        body: { success: true, message: "Note deleted successfully" },
+        requestBodyLog,
+      },
+      requestStartTime
+    );
+
+    return sendEncodedResponse(res, 200, true, "Note deleted successfully");
+  } catch (error) {
+    await logRequest(
+      req,
+      {
+        userId: req.user?.userId || null,
+        status: error.statusCode || 500,
+        body: { success: false, message: error.message },
+        requestBodyLog,
+        error: error.message,
+        stackTrace: error.stack,
+      },
+      requestStartTime
+    );
+    return next(error);
+  }
+});
+
 module.exports = {
   createPropertyManagerNotes,
   approveOrEditNote,
@@ -1183,4 +1259,5 @@ module.exports = {
   getPropertyNotesByOwner,
   getAllOwnerNotes,
   addOwnerNoteForProperty,
+  deleteNote,
 };
