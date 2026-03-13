@@ -23,6 +23,7 @@
   "dependencies": {
     "@google-cloud/cloud-sql-connector": "^1.9.0",
     "@google-cloud/storage": "^7.19.0",
+    "cloudinary": "^2.9.0",
     "cors": "^2.8.5",
     "dotenv": "^17.2.3",
     "express": "^5.2.1",

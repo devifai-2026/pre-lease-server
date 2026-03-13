@@ -29,7 +29,8 @@ const {
   checkRole,
   checkAdminOrSuperAdmin,
 } = require("../middlewares/auth");
-const { multerUpload, uploadToGCS } = require("../middlewares/uploadGCS");
+const { multerUpload, uploadToCloudinary: uploadToGCS } = require("../middlewares/uploadCloudinary");
+
 
 // ============================================
 // PROPERTY CRUD OPERATIONS

@@ -33,16 +33,27 @@ const parseExpiry = (expiryStr) => {
 const getSignedUrl = async (gcsPath) => {
   if (!gcsPath) return null;
 
+  // If it's already a full URL (e.g. Cloudinary URL), return it as is
+  if (gcsPath.startsWith("http://") || gcsPath.startsWith("https://")) {
+    return gcsPath;
+  }
+
   const expiryMs = parseExpiry(process.env.GCS_SIGNED_URL_EXPIRY);
+  
+  try {
+    const [url] = await bucket.file(gcsPath).getSignedUrl({
+      version: "v4",
+      action: "read",
+      expires: Date.now() + expiryMs,
+    });
 
-  const [url] = await bucket.file(gcsPath).getSignedUrl({
-    version: "v4",
-    action: "read",
-    expires: Date.now() + expiryMs,
-  });
-
-  return url;
+    return url;
+  } catch (error) {
+    console.error(`Error generating signed URL for ${gcsPath}:`, error.message);
+    return gcsPath; // Fallback to original path
+  }
 };
+
 
 /**
  * Generate signed URLs for an array of media records
