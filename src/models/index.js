@@ -19,6 +19,7 @@ const PropertyManagerNotes = require("./propertyManagerNotes");
 const PropertyInquiry = require("./propertyInquiries");
 const PropertyNotificationEvent = require("./propertyNotificationEvent");
 const PropertyVerificationLog = require("./propertyVerificationLog");
+const PropertyLike = require("./propertyLike");
 
 // ============================================
 // USER & ROLE ASSOCIATIONS
@@ -382,6 +383,30 @@ PropertyVerificationLog.belongsTo(User, {
 });
 
 // ============================================
+// PROPERTY LIKE (WISHLIST) ASSOCIATIONS
+// ============================================
+
+Property.hasMany(PropertyLike, {
+  foreignKey: "propertyId",
+  as: "likes",
+  onDelete: "CASCADE",
+});
+PropertyLike.belongsTo(Property, {
+  foreignKey: "propertyId",
+  as: "property",
+});
+
+User.hasMany(PropertyLike, {
+  foreignKey: "userId",
+  as: "propertyLikes",
+  onDelete: "CASCADE",
+});
+PropertyLike.belongsTo(User, {
+  foreignKey: "userId",
+  as: "user",
+});
+
+// ============================================
 // EXPORTS
 // ============================================
 
@@ -406,4 +431,5 @@ module.exports = {
   PropertyInquiry,
   PropertyNotificationEvent,
   PropertyVerificationLog,
+  PropertyLike,
 };

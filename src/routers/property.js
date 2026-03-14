@@ -23,6 +23,11 @@ const {
   addOwnerNoteForProperty,
 } = require("../controllers/notes");
 const {
+  toggleLikeProperty,
+  getWishlistProperties,
+  checkIfLiked,
+} = require("../controllers/wishlist");
+const {
   authenticateUser,
   checkPermission,
   checkSalesPerson,
@@ -96,6 +101,31 @@ router.get(
 
 // ✅ Get single property details
 router.get("/properties/:propertyId", getPropertyById);
+
+// ============================================
+// WISHLIST APIS
+// ============================================
+
+// ✅ Add / Remove property from wishlist
+router.post(
+  "/properties/:propertyId/like",
+  authenticateUser,
+  toggleLikeProperty
+);
+
+// ✅ Check if property is liked
+router.get(
+  "/properties/:propertyId/like",
+  authenticateUser,
+  checkIfLiked
+);
+
+// ✅ Get logged-in user wishlist
+router.get(
+  "/wishlist",
+  authenticateUser,
+  getWishlistProperties
+);
 
 // ============================================
 // INVESTOR NOTES (Investor Role)
