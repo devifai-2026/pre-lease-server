@@ -321,10 +321,15 @@ const updateUser = asyncHandler(async (req, res, next) => {
 
     const currentRole = existingUser.roles[0];
     if (currentRole.roleType === "client") {
-      throw createAppError(
-        "Cannot update client users (Owner, Broker, Investor) via admin API",
-        403
+      const isOnlyActiveStatusUpdate = Object.keys(req.body).every(
+        (key) => key === "isActive"
       );
+      if (!isOnlyActiveStatusUpdate) {
+        throw createAppError(
+          "Cannot update client users details (Owner, Broker, Investor) via admin API except their activation status",
+          403
+        );
+      }
     }
 
     if (email !== undefined || mobileNumber !== undefined) {
@@ -1898,6 +1903,7 @@ const adminGetAllProperties = asyncHandler(async (req, res, next) => {
     salesExecutiveId,
     salesManagerId,
     clientDealerId,
+    userId,
     sortBy = "createdAt",
     sortOrder = "DESC",
   } = req.query;
@@ -1913,6 +1919,7 @@ const adminGetAllProperties = asyncHandler(async (req, res, next) => {
       salesExecutiveId,
       salesManagerId,
       clientDealerId,
+      userId,
     },
   };
 
@@ -1922,6 +1929,14 @@ const adminGetAllProperties = asyncHandler(async (req, res, next) => {
     if (city) whereClause.city = { [Op.iLike]: `%${city}%` };
     if (state) whereClause.state = { [Op.iLike]: `%${state}%` };
     if (propertyType) whereClause.propertyType = propertyType;
+
+    // Filter by client user (Owner or Broker)
+    if (userId) {
+      whereClause[Op.or] = [
+        { ownerId: userId },
+        { brokerId: userId },
+      ];
+    }
 
     // Filter by a specific Sales Executive - Property Manager
     if (salesExecutiveId) {
