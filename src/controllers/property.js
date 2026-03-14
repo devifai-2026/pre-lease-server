@@ -1388,6 +1388,10 @@ const getAllProperties = asyncHandler(async (req, res, next) => {
     sortBy = "createdAt",
     sortOrder = "DESC",
     isVerified,
+    ownerId,
+    brokerId,
+    salesId,
+    addedBy,
   } = req.query;
 
   const requestBodyLog = {
@@ -1400,6 +1404,7 @@ const getAllProperties = asyncHandler(async (req, res, next) => {
       roi: { minROI, maxROI },
       tenure: { minTenure, maxTenure },
       location: { city, state, microMarket },
+      userRels: { ownerId, brokerId, salesId, addedBy },
     },
     sortBy,
     sortOrder,
@@ -1407,6 +1412,10 @@ const getAllProperties = asyncHandler(async (req, res, next) => {
 
   try {
     const whereClause = { isActive: true };
+
+    if (addedBy) {
+      whereClause[Op.or] = [{ ownerId: addedBy }, { brokerId: addedBy }];
+    }
 
     if (minPrice || maxPrice) {
       whereClause.sellingPrice = {};
@@ -1493,6 +1502,10 @@ const getAllProperties = asyncHandler(async (req, res, next) => {
         whereClause.isVerified = isVerified;
       }
     }
+
+    if (ownerId) whereClause.ownerId = ownerId;
+    if (brokerId) whereClause.brokerId = brokerId;
+    if (salesId) whereClause.salesId = salesId;
 
     const pageNumber = parseInt(page);
     const pageSize = parseInt(limit);

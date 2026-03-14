@@ -144,15 +144,12 @@ const createUser = asyncHandler(async (req, res, next) => {
     }
 
     const existingUser = await User.findOne({
-      where: { [Op.or]: [{ email }, { mobileNumber }] },
+      where: { email },
     });
 
     if (existingUser) {
       if (existingUser.email === email) {
         throw createAppError("Email already exists", 409);
-      }
-      if (existingUser.mobileNumber === mobileNumber) {
-        throw createAppError("Mobile number already exists", 409);
       }
     }
 
@@ -335,7 +332,6 @@ const updateUser = asyncHandler(async (req, res, next) => {
     if (email !== undefined || mobileNumber !== undefined) {
       const orConditions = [];
       if (email && email !== existingUser.email) orConditions.push({ email });
-      if (mobileNumber && mobileNumber !== existingUser.mobileNumber) orConditions.push({ mobileNumber });
 
       if (orConditions.length > 0) {
           const duplicateUser = await User.findOne({
@@ -348,9 +344,6 @@ const updateUser = asyncHandler(async (req, res, next) => {
           if (duplicateUser) {
             if (email && duplicateUser.email === email) {
               throw createAppError("Email already exists", 409);
-            }
-            if (mobileNumber && duplicateUser.mobileNumber === mobileNumber) {
-              throw createAppError("Mobile number already exists", 409);
             }
           }
       }
@@ -600,10 +593,10 @@ const getAllUsers = asyncHandler(async (req, res, next) => {
   try {
     const whereClause = { userType: "admin" };
 
-    if (isActive !== undefined) {
+    if (isActive !== undefined && isActive !== "all") {
       whereClause.isActive = isActive === "true";
-    } else {
-      // not to send the inactive users
+    } else if (isActive === undefined) {
+      // not to send the inactive users by default
       whereClause.isActive = true;
     }
 
@@ -762,7 +755,7 @@ const getUserById = asyncHandler(async (req, res, next) => {
 
   try {
     const user = await User.findOne({
-      where: { userId, isActive: true },
+      where: { userId },
       attributes: [
         "userId",
         "firstName",
@@ -894,15 +887,12 @@ const createSuperAdmin = asyncHandler(async (req, res, next) => {
     }
 
     const existingUser = await User.findOne({
-      where: { [Op.or]: [{ email }, { mobileNumber }] },
+      where: { email },
     });
 
     if (existingUser) {
       if (existingUser.email === email) {
         throw createAppError("Email already exists", 409);
-      }
-      if (existingUser.mobileNumber === mobileNumber) {
-        throw createAppError("Mobile number already exists", 409);
       }
     }
 
@@ -1930,11 +1920,12 @@ const adminGetAllProperties = asyncHandler(async (req, res, next) => {
     if (state) whereClause.state = { [Op.iLike]: `%${state}%` };
     if (propertyType) whereClause.propertyType = propertyType;
 
-    // Filter by client user (Owner or Broker)
+    // Filter by user (Owner, Broker, or Sales Executive)
     if (userId) {
       whereClause[Op.or] = [
         { ownerId: userId },
         { brokerId: userId },
+        { salesId: userId },
       ];
     }
 

@@ -549,8 +549,16 @@ const getAllPropertiesWithNotes = asyncHandler(async (req, res, next) => {
         {
           model: User,
           as: "salesExecutive",
-          attributes: ["userId", "firstName", "lastName", "email"],
+          attributes: ["userId", "firstName", "lastName", "email", "userType"],
           required: false,
+          include: [
+            {
+              model: Role,
+              as: "roles",
+              attributes: ["roleName"],
+              through: { attributes: [] },
+            },
+          ],
         },
       ],
       order: [[sortBy, sortOrder.toUpperCase()]],
@@ -569,6 +577,14 @@ const getAllPropertiesWithNotes = asyncHandler(async (req, res, next) => {
 
         recordData.originalNote = recordData.notes;
         recordData.adminNote = recordData.isEdited ? recordData.editedNote : null;
+
+        const ownerId = recordData.property?.ownerId || null;
+        const creatorRoles = recordData.salesExecutive?.roles?.map(r => r.roleName) || [];
+        const isClientRole = creatorRoles.some(r => ["Owner", "Investor", "Broker"].includes(r));
+        const isClientUser = recordData.salesExecutive?.userType === 'client' || isClientRole;
+        
+        recordData.isOwnerNote = isClientUser || (ownerId ? recordData.salesExecutiveId === ownerId : false);
+
         delete recordData.notes;
         delete recordData.editedNote;
 
@@ -743,8 +759,16 @@ const getPropertyWithNotes = asyncHandler(async (req, res, next) => {
             {
               model: User,
               as: "salesExecutive",
-              attributes: ["userId", "firstName", "lastName", "email", "mobileNumber"],
+              attributes: ["userId", "firstName", "lastName", "email", "mobileNumber", "userType"],
               required: false,
+              include: [
+                {
+                  model: Role,
+                  as: "roles",
+                  attributes: ["roleName"],
+                  through: { attributes: [] },
+                },
+              ],
             },
           ],
         },
@@ -770,7 +794,16 @@ const getPropertyWithNotes = asyncHandler(async (req, res, next) => {
         const formatted = { ...record };
         formatted.originalNote = record.notes;
         formatted.adminNote = record.isEdited ? record.editedNote : null;
-        formatted.isOwnerNote = ownerId ? record.salesExecutiveId === ownerId : false;
+        
+        // A note is considered an "Owner Note" (Client side) if the creator's userType is 'client'
+        // or if they have client roles (Owner, Investor, Broker)
+        // or if their ID matches the property's ownerId.
+        const creatorRoles = record.salesExecutive?.roles?.map(r => r.roleName) || [];
+        const isClientRole = creatorRoles.some(r => ["Owner", "Investor", "Broker"].includes(r));
+        const isClientUser = record.salesExecutive?.userType === 'client' || isClientRole;
+        
+        formatted.isOwnerNote = isClientUser || (ownerId ? record.salesExecutiveId === ownerId : false);
+        
         delete formatted.notes;
         delete formatted.editedNote;
         return formatted;
@@ -828,55 +861,50 @@ const getPropertyNotesByOwner = asyncHandler(async (req, res, next) => {
   const requestBodyLog = { propertyId, ownerId };
 
   try {
-    const property = await Property.findOne({
-      where: { propertyId, ownerId, isActive: true },
-      attributes: ["propertyId", "propertyType", "city", "state", "microMarket"],
+    const notes = await PropertyManagerNotes.findAll({
+      where: { propertyId, isActive: true, status: "approved" },
       include: [
         {
-          model: PropertyManagerNotes,
-          as: "managerNotes",
-          where: { isActive: true, status: "approved" },
+          model: User,
+          as: "salesExecutive",
+          attributes: ["userId", "firstName", "lastName", "email"],
           required: false,
-          include: [
-            {
-              model: User,
-              as: "salesExecutive",
-              attributes: ["userId", "firstName", "lastName", "email"],
-              required: false,
-            },
-          ],
         },
       ],
+      order: [["createdAt", "DESC"]],
     });
 
-    if (!property) {
-      throw createAppError("Property not found or you don't have access", 404);
-    }
-
-    const data = property.toJSON();
-    if (data.managerNotes) {
-      data.managerNotes = data.managerNotes.map((record) => {
-        const formatted = { ...record };
-        formatted.originalNote = record.notes;
-        formatted.adminNote = record.isEdited ? record.editedNote : null;
-        delete formatted.notes;
-        delete formatted.editedNote;
-        return formatted;
-      });
-    }
+    const formattedNotes = notes.map((record) => {
+      const recordData = record.toJSON();
+      recordData.originalNote = recordData.notes;
+      recordData.adminNote = recordData.isEdited ? recordData.editedNote : null;
+      delete recordData.notes;
+      delete recordData.editedNote;
+      return recordData;
+    });
 
     await logRequest(
       req,
       {
         userId: req.user.userId,
         status: 200,
-        body: { success: true, message: "Notes fetched successfully" },
+        body: {
+          success: true,
+          message: "Notes fetched successfully",
+          count: formattedNotes.length,
+        },
         requestBodyLog,
       },
       requestStartTime
     );
 
-    return sendEncodedResponse(res, 200, true, "Notes fetched successfully", data);
+    return sendEncodedResponse(
+      res,
+      200,
+      true,
+      "Notes fetched successfully",
+      formattedNotes
+    );
   } catch (error) {
     await logRequest(
       req,
@@ -996,13 +1024,15 @@ const addOwnerNoteForProperty = asyncHandler(async (req, res, next) => {
       throw createAppError("Note cannot exceed 5000 characters", 400);
     }
 
+    const where = { propertyId, isActive: true };
+
     const property = await Property.findOne({
-      where: { propertyId, ownerId, isActive: true },
+      where,
       attributes: ["propertyId", "isVerified", "city", "state", "salesId"],
     });
 
     if (!property) {
-      throw createAppError("Property not found or you don't have access", 404);
+      throw createAppError("Property not found", 404);
     }
 
     if (property.isVerified === "completed") {

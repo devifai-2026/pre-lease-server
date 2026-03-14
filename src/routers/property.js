@@ -193,15 +193,21 @@ router.get(
   getPropertyWithNotes
 );
 
-// ============================================
-// OWNER: VIEW NOTES ON THEIR OWN PROPERTY
-// ============================================
-
-// ✅ Owner can see notes added by the sales exec on their property
+// ✅ Owner, Broker, and Investor can see approved notes on their property
 router.get(
   "/owner/properties/:propertyId/notes",
   authenticateUser,
-  checkRole(["Owner"]),
+  checkRole([
+    "Owner",
+    "Broker",
+    "Investor",
+    "Admin",
+    "Super Admin",
+    "Sales Manager",
+    "Sales Executive",
+    "Sales Executive - Property Manager",
+    "Sales Executive - Client Dealer",
+  ]),
   getPropertyNotesByOwner
 );
 
@@ -217,7 +223,17 @@ router.get(
 router.post(
   "/owner/properties/:propertyId/notes",
   authenticateUser,
-  checkRole(["Owner"]),
+  checkRole([
+    "Owner",
+    "Broker",
+    "Investor",
+    "Admin",
+    "Super Admin",
+    "Sales Manager",
+    "Sales Executive",
+    "Sales Executive - Property Manager",
+    "Sales Executive - Client Dealer",
+  ]),
   addOwnerNoteForProperty
 );
 
