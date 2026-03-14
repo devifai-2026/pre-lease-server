@@ -329,6 +329,51 @@ const updateUser = asyncHandler(async (req, res, next) => {
       }
     }
 
+    // ── ONGOING PROCESS CHECK ──────────────────────────────────────────────
+    // Block deactivation of Sales Executives if they have ongoing work
+    if (
+      isActive === false &&
+      SALES_EXECUTIVE_ROLES.includes(currentRole.roleName)
+    ) {
+      const issues = [];
+
+      // Property Manager: active properties still assigned to this exec
+      if (currentRole.roleName === "Sales Executive - Property Manager") {
+        const assignedProperties = await Property.count({
+          where: {
+            salesId: userId,
+            isActive: true,
+            sellingStatus: { [Op.ne]: "final closure" },
+          },
+        });
+        if (assignedProperties > 0) {
+          issues.push(
+            `${assignedProperties} active propert${assignedProperties === 1 ? "y" : "ies"} still assigned`
+          );
+        }
+      }
+
+      // Client Dealer: open inquiries assigned to this exec
+      if (currentRole.roleName === "Sales Executive - Client Dealer") {
+        const openInquiries = await PropertyInquiry.count({
+          where: { assignedTo: userId },
+        });
+        if (openInquiries > 0) {
+          issues.push(
+            `${openInquiries} open inquir${openInquiries === 1 ? "y" : "ies"} still assigned`
+          );
+        }
+      }
+
+      if (issues.length > 0) {
+        throw createAppError(
+          `Cannot deactivate this user — they have ongoing processes: ${issues.join(", ")}. Please reassign before deactivating.`,
+          409
+        );
+      }
+    }
+    // ── END ONGOING PROCESS CHECK ──────────────────────────────────────────
+
     if (email !== undefined || mobileNumber !== undefined) {
       const orConditions = [];
       if (email && email !== existingUser.email) orConditions.push({ email });
@@ -484,7 +529,7 @@ const deleteUser = asyncHandler(async (req, res, next) => {
 
   try {
     const existingUser = await User.findOne({
-      where: { userId, isActive: true },
+      where: { userId, deletedAt: null },
       include: [
         {
           model: Role,
@@ -499,20 +544,12 @@ const deleteUser = asyncHandler(async (req, res, next) => {
       throw createAppError("User not found or already deleted", 404);
     }
 
-    const currentRole = existingUser.roles[0];
-    if (currentRole.roleType === "client") {
-      throw createAppError(
-        "Cannot delete client users (Owner, Broker, Investor) via admin API",
-        403
-      );
-    }
-
     if (userId === req.user.userId) {
       throw createAppError("Cannot delete your own account", 403);
     }
 
     await sequelize.transaction(async (t) => {
-      await existingUser.update({ isActive: false }, { transaction: t });
+      await existingUser.update({ isActive: false, deletedAt: new Date() }, { transaction: t });
 
       await logUpdate({
         userId: req.user.userId,
@@ -591,7 +628,7 @@ const getAllUsers = asyncHandler(async (req, res, next) => {
   };
 
   try {
-    const whereClause = { userType: "admin" };
+    const whereClause = { userType: "admin", deletedAt: null };
 
     if (isActive !== undefined && isActive !== "all") {
       whereClause.isActive = isActive === "true";

@@ -694,7 +694,7 @@ const getPropertyWithNotes = asyncHandler(async (req, res, next) => {
       }
       notesWhere.salesExecutiveId = { [Op.in]: teamIds };
     } else {
-      // Dealer: see own notes + owner/client notes
+      // Dealer: see own notes + owner/client notes + any other exec notes on this property
       const dealerNoteIds = [salesExecutiveId];
       const propForOwner = await Property.findOne({
         where: { propertyId, isActive: true },
@@ -704,6 +704,21 @@ const getPropertyWithNotes = asyncHandler(async (req, res, next) => {
       if (propForOwner && propForOwner.ownerId) {
         dealerNoteIds.push(propForOwner.ownerId);
       }
+
+      // Also include all other executives who have contributed notes to this property
+      // so that a Property Manager can see Client Dealer notes and vice versa
+      const existingNoteAuthors = await PropertyManagerNotes.findAll({
+        where: { propertyId, isActive: true },
+        attributes: ["salesExecutiveId"],
+        group: ["salesExecutiveId"],
+        raw: true,
+      });
+      existingNoteAuthors.forEach((n) => {
+        if (n.salesExecutiveId && !dealerNoteIds.includes(n.salesExecutiveId)) {
+          dealerNoteIds.push(n.salesExecutiveId);
+        }
+      });
+
       notesWhere.salesExecutiveId = { [Op.in]: dealerNoteIds };
     }
 

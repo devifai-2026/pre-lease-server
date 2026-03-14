@@ -27,6 +27,25 @@ const { sendEncodedResponse } = require("../utils/responseEncoder");
 const { attachSignedUrls } = require("../utils/gcsHelper");
 const { getIO } = require("../config/socket");
 
+/**
+ * Builds the Sequelize where clause for isVerified filtering.
+ * Supported values:
+ *   'pending'          → null or not in [completed, partial]
+ *   'completedOrPartial' → IN ['completed', 'partial']
+ *   'completed' | 'partial' → exact match
+ */
+const buildIsVerifiedClause = (isVerified) => {
+  if (!isVerified) return null;
+  if (isVerified === "pending") {
+    return { [Op.or]: [{ [Op.is]: null }, { [Op.notIn]: ["completed", "partial"] }] };
+  }
+  if (isVerified === "completedOrPartial") {
+    return { [Op.in]: ["completed", "partial"] };
+  }
+  return isVerified; // exact value: 'completed' | 'partial'
+};
+
+
 const ALLOWED_UPDATE_FIELDS = [
   "propertyType",
   "carpetAreaSqft",
@@ -1494,13 +1513,7 @@ const getAllProperties = asyncHandler(async (req, res, next) => {
     }
 
     if (isVerified) {
-      if (isVerified === "pending") {
-        whereClause.isVerified = {
-          [Op.or]: [{ [Op.is]: null }, { [Op.notIn]: ["completed", "partial"] }],
-        };
-      } else {
-        whereClause.isVerified = isVerified;
-      }
+      whereClause.isVerified = buildIsVerifiedClause(isVerified);
     }
 
     if (ownerId) whereClause.ownerId = ownerId;
@@ -1871,13 +1884,7 @@ const getAssignedProperties = asyncHandler(async (req, res, next) => {
     }
 
     if (isVerified) {
-      if (isVerified === "pending") {
-        whereClause.isVerified = {
-          [Op.or]: [{ [Op.is]: null }, { [Op.notIn]: ["completed", "partial"] }],
-        };
-      } else {
-        whereClause.isVerified = isVerified;
-      }
+      whereClause.isVerified = buildIsVerifiedClause(isVerified);
     }
 
     const pageNumber = parseInt(page);
@@ -2287,13 +2294,7 @@ const getHotProperties = asyncHandler(async (req, res, next) => {
     const whereClause = { isActive: true };
 
     if (isVerified) {
-      if (isVerified === "pending") {
-        whereClause.isVerified = {
-          [Op.or]: [{ [Op.is]: null }, { [Op.notIn]: ["completed", "partial"] }],
-        };
-      } else {
-        whereClause.isVerified = isVerified;
-      }
+      whereClause.isVerified = buildIsVerifiedClause(isVerified);
     }
 
     const pageNumber = parseInt(page);

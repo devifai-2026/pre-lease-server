@@ -169,6 +169,32 @@ const signup = asyncHandler(async (req, res, next) => {
       }
     }
 
+    // For client roles (Investor, Owner, Broker): check if same mobile already has this role
+    const CLIENT_ROLES = ["Investor", "Owner", "Broker"];
+    const incomingRole = roleName || "Broker";
+    if (CLIENT_ROLES.includes(incomingRole) && mobileNumber) {
+      const existingMobileUser = await User.findOne({
+        where: { mobileNumber },
+        include: [
+          {
+            model: Role,
+            as: "roles",
+            where: { roleName: incomingRole, isActive: true },
+            through: { attributes: [] },
+            required: true,
+          },
+        ],
+        attributes: ["userId"],
+      });
+
+      if (existingMobileUser) {
+        throw createAppError(
+          `A ${incomingRole} account with this mobile number already exists`,
+          409
+        );
+      }
+    }
+
     // Normalize roleName to handle common typos like Inverstor or Invertor
     let normalizedRoleName = roleName || "Broker";
     if (
@@ -958,7 +984,7 @@ const getClientUsers = asyncHandler(async (req, res, next) => {
   };
 
   try {
-    const whereClause = { userType: "client" };
+    const whereClause = { userType: "client", deletedAt: null };
 
     if (isActive !== undefined && isActive !== "all") {
       whereClause.isActive = isActive === "true";
