@@ -609,16 +609,19 @@ const createProperty = asyncHandler(async (req, res, next) => {
 
       // Notify Admins
       for (const adminId of adminIds) {
+        if (adminId === createdByUserId) continue;
         const message = assignedSalesId
           ? `${creatorName} has added a new property in ${city}. It has been auto-assigned to ${executiveName}.`
           : `${creatorName} has added a new property in ${city}. No Sales Executive was available for auto-assignment.`;
         notificationRecords.push({
           propertyId: propId,
           userId: adminId,
+          title: "Property Created",
           notificationText: message,
         });
         io.to(`user:${adminId}`).emit("property:created", {
           propertyId: propId,
+          title: "Property Created",
           message,
           city,
           propertyType: result.property.propertyType,
@@ -634,10 +637,12 @@ const createProperty = asyncHandler(async (req, res, next) => {
         notificationRecords.push({
           propertyId: propId,
           userId: assignedSalesId,
+          title: "Property Assigned",
           notificationText: message,
         });
         io.to(`user:${assignedSalesId}`).emit("property:created", {
           propertyId: propId,
+          title: "Property Assigned",
           message,
           city,
           propertyType: result.property.propertyType,
@@ -653,10 +658,12 @@ const createProperty = asyncHandler(async (req, res, next) => {
         notificationRecords.push({
           propertyId: propId,
           userId: salesManagerId,
+          title: "Property Created",
           notificationText: message,
         });
         io.to(`user:${salesManagerId}`).emit("property:created", {
           propertyId: propId,
+          title: "Property Created",
           message,
           city,
           propertyType: result.property.propertyType,
@@ -948,6 +955,7 @@ const updateProperty = asyncHandler(async (req, res, next) => {
         const notificationRecords = notifyUserIds.map((uid) => ({
           propertyId: prop.propertyId,
           userId: uid,
+          title: "Property Updated",
           notificationText: message,
         }));
         await PropertyNotificationEvent.bulkCreate(notificationRecords);
@@ -956,6 +964,8 @@ const updateProperty = asyncHandler(async (req, res, next) => {
         notifyUserIds.forEach((uid) => {
           io.to(`user:${uid}`).emit("property:updated", {
             propertyId: prop.propertyId,
+            title: "Property Updated",
+            message,
             updatedFields: result.updatedFields,
             updatedBy: req.user.userId,
             timestamp,

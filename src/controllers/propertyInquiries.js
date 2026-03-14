@@ -155,16 +155,18 @@ const createPropertyInquiry = asyncHandler(async (req, res, next) => {
           const notif = await PropertyNotificationEvent.create({
             propertyId: property.propertyId,
             userId: recipientId,
+            title: "New Inquiry",
             notificationText: message,
           });
 
           io.to(`user:${recipientId}`).emit("inquiry:received", {
-            id: notif.id,
-            inquiryId: inquiryRecord.id,
-            propertyId: property.propertyId,
-            message,
-            timestamp,
-          });
+        propertyId: property.propertyId,
+        id: notif.id,
+        title: "New Inquiry",
+        message: `A new inquiry has been received for property in ${property.city}`,
+        propertyCity: property.city,
+        timestamp,
+      });
         }
 
         // Notify the dealer who was auto-assigned on inquiry creation
@@ -173,6 +175,7 @@ const createPropertyInquiry = asyncHandler(async (req, res, next) => {
           const dealerNotif = await PropertyNotificationEvent.create({
             propertyId: property.propertyId,
             userId: autoAssignedTo,
+            title: "Inquiry Assigned",
             notificationText: dealerMessage,
           });
 
@@ -180,10 +183,12 @@ const createPropertyInquiry = asyncHandler(async (req, res, next) => {
             id: dealerNotif.id,
             inquiryId: inquiryRecord.id,
             propertyId: property.propertyId,
-            message: dealerMessage,
-            assignedBy: "system",
-            timestamp,
-          });
+            title: "Inquiry Assigned",
+            message: `A new inquiry for ${property.city} has been assigned to you.`,
+            propertyCity: property.city,
+            timestamp: new Date().toISOString(),
+        assignedBy: "system",
+      });
         }
 
       } catch (notifErr) {
@@ -399,6 +404,7 @@ const assignInquiry = asyncHandler(async (req, res, next) => {
       notificationRecords.push({
         propertyId: inquiry.propertyId,
         userId: assignedTo,
+        title: "Inquiry Assigned",
         notificationText: newMessage,
       });
       io.to(`user:${assignedTo}`).emit("inquiry:assigned", {
@@ -416,6 +422,7 @@ const assignInquiry = asyncHandler(async (req, res, next) => {
         notificationRecords.push({
           propertyId: inquiry.propertyId,
           userId: oldAssignedTo,
+          title: "Inquiry Unassigned",
           notificationText: oldMessage,
         });
         io.to(`user:${oldAssignedTo}`).emit("inquiry:unassigned", {
@@ -440,6 +447,7 @@ const assignInquiry = asyncHandler(async (req, res, next) => {
           propertyId: inquiry.propertyId,
           userId: aId,
           notificationText: adminMessage,
+          title: "Inquiry Assigned",
         });
         io.to(`user:${aId}`).emit("inquiry:assigned", {
           inquiryId: inquiry.id,
@@ -466,6 +474,7 @@ const assignInquiry = asyncHandler(async (req, res, next) => {
           propertyId: inquiry.propertyId,
           userId: salesManagerId,
           notificationText: smMessage,
+          title: "Inquiry Assigned",
         });
         io.to(`user:${salesManagerId}`).emit("inquiry:assigned", {
           inquiryId: inquiry.id,
@@ -491,6 +500,7 @@ const assignInquiry = asyncHandler(async (req, res, next) => {
         notificationRecords.push({
           propertyId: inquiry.propertyId,
           userId: oldSalesManagerId,
+          title: "Inquiry Unassigned",
           notificationText: oldSmMessage,
         });
         io.to(`user:${oldSalesManagerId}`).emit("inquiry:unassigned", {
@@ -709,6 +719,7 @@ const autoAssignInquiry = asyncHandler(async (req, res, next) => {
       notificationRecords.push({
         propertyId: inquiry.propertyId,
         userId: bestDealerId,
+        title: "Inquiry Assigned",
         notificationText: dealerMessage,
       });
       io.to(`user:${bestDealerId}`).emit("inquiry:assigned", {
@@ -728,6 +739,7 @@ const autoAssignInquiry = asyncHandler(async (req, res, next) => {
           propertyId: inquiry.propertyId,
           userId: aId,
           notificationText: adminMessage,
+          title: "Inquiry Assigned",
         });
         io.to(`user:${aId}`).emit("inquiry:assigned", {
           inquiryId: inquiry.id,
@@ -751,6 +763,7 @@ const autoAssignInquiry = asyncHandler(async (req, res, next) => {
         notificationRecords.push({
           propertyId: inquiry.propertyId,
           userId: salesManagerId,
+          title: "Inquiry Assigned",
           notificationText: smMessage,
         });
         io.to(`user:${salesManagerId}`).emit("inquiry:assigned", {
@@ -945,10 +958,91 @@ const getAssignedInquiries = asyncHandler(async (req, res) => {
 //   catch (error) { }
 // });
 
+const getMyInquiries = asyncHandler(async (req, res, next) => {
+  const inquirerId = req.user.userId;
+  const { page = 1, limit = 10 } = req.query;
+
+  const pageNumber = parseInt(page);
+  const pageSize = parseInt(limit);
+  const offset = (pageNumber - 1) * pageSize;
+
+  const { count, rows: inquiries } = await PropertyInquiry.findAndCountAll({
+    where: { inquirerId },
+    include: [
+      {
+        model: Property,
+        as: "property",
+        attributes: ["propertyId", "city", "state", "propertyType", "sellingPrice", "annualGrossRent"],
+      },
+      {
+        model: User,
+        as: "inquirer",
+        attributes: ["userId", "firstName", "lastName", "email"],
+      },
+    ],
+    order: [["created_at", "DESC"]],
+    limit: pageSize,
+    offset,
+    distinct: true,
+  });
+
+  return sendEncodedResponse(
+    res,
+    200,
+    true,
+    "My inquiries fetched",
+    inquiries,
+    {
+      pagination: {
+        currentPage: pageNumber,
+        pageSize,
+        totalItems: count,
+        totalPages: Math.ceil(count / pageSize),
+      },
+    }
+  );
+});
+
+const getInquiryById = asyncHandler(async (req, res, next) => {
+  const { id } = req.params;
+  const userId = req.user.userId;
+
+  const inquiry = await PropertyInquiry.findOne({
+    where: { id },
+    include: [
+      {
+        model: Property,
+        as: "property",
+        attributes: ["propertyId", "propertyType", "city", "state", "sellingPrice", "annualGrossRent"],
+      },
+      {
+        model: User,
+        as: "inquirer",
+        attributes: ["userId", "firstName", "lastName", "email", "mobileNumber"],
+      },
+    ],
+  });
+
+  if (!inquiry) {
+    throw createAppError("Inquiry not found", 404);
+  }
+
+  // Security check: Only allow the inquirer or admins/assigned sales to view details
+  const userRole = req.userRole || req.user.role;
+  const isAdmin = ["Admin", "Super Admin", "Sales Manager"].includes(userRole);
+  if (!isAdmin && inquiry.inquirerId !== userId && inquiry.assignedTo !== userId) {
+    throw createAppError("You do not have permission to view this inquiry", 403);
+  }
+
+  return sendEncodedResponse(res, 200, true, "Inquiry details fetched successfully", inquiry);
+});
+
 module.exports = {
   createPropertyInquiry,
   assignInquiry,
   autoAssignInquiry,
   getPendingInquiries,
   getAssignedInquiries,
+  getMyInquiries,
+  getInquiryById,
 };

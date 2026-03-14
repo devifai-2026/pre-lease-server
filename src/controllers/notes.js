@@ -152,6 +152,7 @@ const createPropertyManagerNotes = asyncHandler(async (req, res, next) => {
             recipientIds.map((uid) => ({
               propertyId: property.propertyId,
               userId: uid,
+              title: "Note Pending",
               notificationText: message,
             }))
           );
@@ -160,6 +161,7 @@ const createPropertyManagerNotes = asyncHandler(async (req, res, next) => {
             io.to(`user:${uid}`).emit("property:note_pending_approval", {
               propertyId: property.propertyId,
               noteId: noteRecord.noteId,
+              title: "Note Pending",
               message,
               addedBy: callerId,
               timestamp,
@@ -179,6 +181,7 @@ const createPropertyManagerNotes = asyncHandler(async (req, res, next) => {
             recipientIds.map((uid) => ({
               propertyId: property.propertyId,
               userId: uid,
+              title: "Note Added",
               notificationText: message,
             }))
           );
@@ -186,6 +189,7 @@ const createPropertyManagerNotes = asyncHandler(async (req, res, next) => {
             io.to(`user:${uid}`).emit("property:note_added", {
               propertyId: property.propertyId,
               noteId: noteRecord.noteId,
+              title: "Note Added",
               message,
               addedBy: callerId,
               timestamp,
@@ -328,11 +332,13 @@ const approveOrEditNote = asyncHandler(async (req, res, next) => {
           await PropertyNotificationEvent.create({
             propertyId,
             userId: salesExecutiveId,
+            title: "Note Accepted",
             notificationText: execMessage,
           });
           io.to(`user:${salesExecutiveId}`).emit("property:note_approved", {
             propertyId,
             noteId,
+            title: "Note Accepted",
             message: execMessage,
             approvedBy: adminId,
             isEdited: wasEdited,
@@ -345,11 +351,13 @@ const approveOrEditNote = asyncHandler(async (req, res, next) => {
             await PropertyNotificationEvent.create({
               propertyId,
               userId: property.ownerId,
+              title: "Note Accepted",
               notificationText: ownerMessage,
             });
             io.to(`user:${property.ownerId}`).emit("property:note_approved", {
               propertyId,
               noteId,
+              title: "Note Accepted",
               message: ownerMessage,
               approvedBy: adminId,
               timestamp,
@@ -365,12 +373,14 @@ const approveOrEditNote = asyncHandler(async (req, res, next) => {
                 propertyId,
                 userId: uid,
                 notificationText: adminBroadcastMessage,
+                title: "Note Accepted",
               }))
             );
             otherAdminIds.forEach((uid) => {
               io.to(`user:${uid}`).emit("property:note_approved", {
                 propertyId,
                 noteId,
+                title: "Note Accepted",
                 message: adminBroadcastMessage,
                 approvedBy: adminId,
                 isEdited: wasEdited,
@@ -384,11 +394,13 @@ const approveOrEditNote = asyncHandler(async (req, res, next) => {
           await PropertyNotificationEvent.create({
             propertyId,
             userId: salesExecutiveId,
+            title: "Note Declined",
             notificationText: denyMessage,
           });
           io.to(`user:${salesExecutiveId}`).emit("property:note_denied", {
             propertyId,
             noteId,
+            title: "Note Declined",
             message: denyMessage,
             deniedBy: adminId,
             timestamp,
@@ -403,12 +415,14 @@ const approveOrEditNote = asyncHandler(async (req, res, next) => {
                 propertyId,
                 userId: uid,
                 notificationText: adminBroadcastMessage,
+                title: "Note Declined",
               }))
             );
             otherAdminIds.forEach((uid) => {
               io.to(`user:${uid}`).emit("property:note_denied", {
                 propertyId,
                 noteId,
+                title: "Note Declined",
                 message: adminBroadcastMessage,
                 deniedBy: adminId,
                 timestamp,
@@ -1083,6 +1097,7 @@ const addOwnerNoteForProperty = asyncHandler(async (req, res, next) => {
           recipientIds.map((uid) => ({
             propertyId,
             userId: uid,
+            title: "Client Note",
             notificationText: message,
           }))
         );
@@ -1091,6 +1106,7 @@ const addOwnerNoteForProperty = asyncHandler(async (req, res, next) => {
           io.to(`user:${uid}`).emit("property:owner_note_added", {
             propertyId,
             noteId: noteRecord.noteId,
+            title: "Client Note",
             message,
             addedBy: ownerId,
             timestamp,

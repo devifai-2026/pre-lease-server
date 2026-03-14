@@ -1220,10 +1220,13 @@ const reassignProperty = asyncHandler(async (req, res, next) => {
       notificationRecords.push({
         propertyId,
         userId,
+        title: "Property Assigned",
         notificationText: assigneeMessage,
       });
       io.to(`user:${userId}`).emit("property:assigned", {
         propertyId,
+        title: "Property Assigned",
+        message: assigneeMessage,
         city,
         state: result.state,
         propertyType: result.propertyType,
@@ -1238,10 +1241,13 @@ const reassignProperty = asyncHandler(async (req, res, next) => {
         notificationRecords.push({
           propertyId,
           userId: oldSalesId,
+          title: "Property Unassigned",
           notificationText: oldMessage,
         });
         io.to(`user:${oldSalesId}`).emit("property:unassigned", {
           propertyId,
+          title: "Property Unassigned",
+          message: oldMessage,
           city,
           state: result.state,
           propertyType: result.propertyType,
@@ -1262,10 +1268,13 @@ const reassignProperty = asyncHandler(async (req, res, next) => {
         notificationRecords.push({
           propertyId,
           userId: adminId,
+          title: "Property Assigned",
           notificationText: adminMessage,
         });
         io.to(`user:${adminId}`).emit("property:assigned", {
           propertyId,
+          title: "Property Assigned",
+          message: adminMessage,
           city,
           state: result.state,
           propertyType: result.propertyType,
@@ -1289,10 +1298,13 @@ const reassignProperty = asyncHandler(async (req, res, next) => {
         notificationRecords.push({
           propertyId,
           userId: salesManagerId,
+          title: "Property Assigned",
           notificationText: smMessage,
         });
         io.to(`user:${salesManagerId}`).emit("property:assigned", {
           propertyId,
+          title: "Property Assigned",
+          message: smMessage,
           city,
           state: result.state,
           propertyType: result.propertyType,
@@ -1316,10 +1328,13 @@ const reassignProperty = asyncHandler(async (req, res, next) => {
         notificationRecords.push({
           propertyId,
           userId: oldSalesManagerId,
+          title: "Property Unassigned",
           notificationText: oldSmMessage,
         });
         io.to(`user:${oldSalesManagerId}`).emit("property:unassigned", {
           propertyId,
+          title: "Property Unassigned",
+          message: oldSmMessage,
           city,
           state: result.state,
           propertyType: result.propertyType,
@@ -1663,10 +1678,12 @@ const verifyProperty = asyncHandler(async (req, res, next) => {
         notificationRecords.push({
           propertyId: property.propertyId,
           userId: recipientId,
+          title: "Property Verified",
           notificationText: message,
         });
         io.to(`user:${recipientId}`).emit("property:verified", {
           propertyId: property.propertyId,
+          title: "Property Verified",
           message,
           isVerified: newIsVerified,
           timestamp,
