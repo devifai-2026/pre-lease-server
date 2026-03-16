@@ -11,6 +11,7 @@ const {
   SalesRelationship,
   PropertyNotificationEvent,
   PropertyVerificationLog,
+  PropertyManagerNotes,
 } = require("../models");
 const { sequelize } = require("../config/dbConnection");
 const createAppError = require("../utils/appError");
@@ -1636,6 +1637,13 @@ const getAllProperties = asyncHandler(async (req, res, next) => {
           required: false,
         },
         {
+          model: PropertyManagerNotes,
+          as: "managerNotes",
+          attributes: ["noteId", "status", "isActive", "createdAt"],
+          where: { isActive: true },
+          required: false,
+        },
+        {
           model: PropertyVerificationLog,
           as: "verificationLogs",
           attributes: [
@@ -2019,6 +2027,13 @@ const getAssignedProperties = asyncHandler(async (req, res, next) => {
               attributes: ["userId", "firstName", "lastName", "email"],
             },
           ],
+        },
+        {
+          model: PropertyManagerNotes,
+          as: "managerNotes",
+          attributes: ["noteId", "status", "isActive", "createdAt"],
+          where: { isActive: true },
+          required: false,
         },
       ],
       order: [[sortBy, sortOrder.toUpperCase()]],
