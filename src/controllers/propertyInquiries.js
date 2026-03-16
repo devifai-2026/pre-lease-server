@@ -5,6 +5,7 @@ const {
   Role,
   SalesRelationship,
   PropertyNotificationEvent,
+  PropertyMedia,
 } = require("../models");
 const createAppError = require("../utils/appError");
 const asyncHandler = require("../utils/asyncHandler");
@@ -892,15 +893,18 @@ const getPendingInquiries = asyncHandler(async (req, res) => {
 const getAssignedInquiries = asyncHandler(async (req, res) => {
   const userId = req.user.userId;
   const userRole = req.userRole || req.user.role;
-  const { page = 1, limit = 10 } = req.query;
+  const { page = 1, limit = 10, search = "" } = req.query;
 
   const pageNumber = parseInt(page);
   const pageSize = parseInt(limit);
   const offset = (pageNumber - 1) * pageSize;
 
-  const whereClause = {};
+  const whereClause = {
+    assignedTo: { [Op.not]: null },
+  };
+
   if (["Admin", "Super Admin"].includes(userRole)) {
-    // Admin/Super Admin see all inquiries (no assignedTo filter)
+    // Admins see all assigned inquiries
   } else if (userRole === "Sales Manager") {
     // Sales Manager sees inquiries assigned to their entire team
     const relationships = await SalesRelationship.findAll({
@@ -916,15 +920,51 @@ const getAssignedInquiries = asyncHandler(async (req, res) => {
     whereClause.assignedTo = userId;
   }
 
+  // Add search functionality
+  const searchClause = search ? {
+    [Op.or]: [
+      { '$property.city$': { [Op.iLike]: `%${search}%` } },
+      { '$property.micro_market$': { [Op.iLike]: `%${search}%` } },
+      { '$property.property_type$': { [Op.iLike]: `%${search}%` } },
+      { '$inquirer.first_name$': { [Op.iLike]: `%${search}%` } },
+      { '$inquirer.last_name$': { [Op.iLike]: `%${search}%` } },
+      { '$inquirer.email$': { [Op.iLike]: `%${search}%` } },
+      { '$clientDealer.first_name$': { [Op.iLike]: `%${search}%` } },
+      { '$clientDealer.last_name$': { [Op.iLike]: `%${search}%` } },
+      { inquiry: { [Op.iLike]: `%${search}%` } },
+    ]
+  } : {};
+
   const { count, rows: inquiries } = await PropertyInquiry.findAndCountAll({
-    where: whereClause,
+    where: { ...whereClause, ...searchClause },
+    subQuery: false,
     include: [
-      { model: Property, as: "property" },
-      { model: User, as: "inquirer" },
+      { 
+        model: Property, 
+        as: "property",
+        required: true, 
+        include: [{
+          model: PropertyMedia,
+          as: "media",
+          attributes: ["fileUrl", "mediaType"],
+          limit: 1
+        }]
+      },
+      { 
+        model: User, 
+        as: "inquirer", 
+        required: search ? true : false 
+      },
+      {
+        model: User,
+        as: "clientDealer",
+        attributes: ["firstName", "lastName", "email"],
+        required: search ? true : false
+      },
     ],
     order: [
       ["priority", "DESC"],
-      ["assigned_at", "ASC"],
+      ["assigned_at", "DESC"],
     ],
     limit: pageSize,
     offset,
