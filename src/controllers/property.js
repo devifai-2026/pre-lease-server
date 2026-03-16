@@ -620,6 +620,7 @@ const createProperty = asyncHandler(async (req, res, next) => {
           notificationText: message,
         });
         io.to(`user:${adminId}`).emit("property:created", {
+          id: propId,
           propertyId: propId,
           title: "Property Created",
           message,
@@ -641,6 +642,7 @@ const createProperty = asyncHandler(async (req, res, next) => {
           notificationText: message,
         });
         io.to(`user:${assignedSalesId}`).emit("property:created", {
+          id: propId,
           propertyId: propId,
           title: "Property Assigned",
           message,
@@ -662,6 +664,7 @@ const createProperty = asyncHandler(async (req, res, next) => {
           notificationText: message,
         });
         io.to(`user:${salesManagerId}`).emit("property:created", {
+          id: propId,
           propertyId: propId,
           title: "Property Created",
           message,
