@@ -28,6 +28,62 @@ const { sendEncodedResponse } = require("../utils/responseEncoder");
 const { attachSignedUrls } = require("../utils/gcsHelper");
 const { getIO } = require("../config/socket");
 
+const FIELD_LABELS = {
+  propertyType: "Property Type",
+  carpetArea: "Carpet Area",
+  carpetAreaUnit: "Unit",
+  completionYear: "Completion Year",
+  lastRefurbishedYear: "Last Refurbished Year",
+  ownershipType: "Ownership Type",
+  buildingGrade: "Building Grade",
+  parkingFourWheeler: "4-Wheeler Parking",
+  parkingTwoWheeler: "2-Wheeler Parking",
+  powerBackup: "Power Backup",
+  numberOfLifts: "Number of Lifts",
+  hvacType: "HVAC Type",
+  furnishingStatus: "Furnishing Status",
+  titleStatus: "Title Status",
+  occupancyCertificate: "OC Status",
+  leaseRegistration: "Lease Registration",
+  hasPendingLitigation: "Potential Litigation",
+  litigationDetails: "Litigation Details",
+  reraNumber: "RERA Number",
+  tenantType: "Tenant Type",
+  leaseStartDate: "Lease Start Date",
+  leaseEndDate: "Lease End Date",
+  lockInPeriodYears: "Lock-in Period (Years)",
+  lockInPeriodMonths: "Lock-in Period (Months)",
+  leaseDurationYears: "Lease Duration",
+  rentType: "Rent Type",
+  rentPerSqftMonthly: "Rent Per Sqft",
+  totalMonthlyRent: "Total Monthly Rent",
+  securityDepositType: "Security Deposit Type",
+  securityDepositMonths: "Security Deposit (Months)",
+  securityDepositAmount: "Security Deposit Amount",
+  escalationFrequencyYears: "Escalation Frequency",
+  annualEscalationPercent: "Escalation Percent",
+  maintenanceCostsIncluded: "Maintenance Included",
+  maintenanceType: "Maintenance Type",
+  maintenanceAmount: "Maintenance Amount",
+  sellingPrice: "Selling Price",
+  propertyTaxAnnual: "Annual Property Tax",
+  insuranceAnnual: "Annual Insurance",
+  otherCostsAnnual: "Other Annual Costs",
+  additionalIncomeAnnual: "Additional Income",
+  annualGrossRent: "Annual Gross Rent",
+  grossRentalYield: "Gross Yield",
+  netRentalYield: "Net Yield",
+  paybackPeriodYears: "Payback Period",
+  microMarket: "Micro Market",
+  city: "City",
+  state: "State",
+  description: "Description",
+  additionalDescription: "Other Amenities",
+  maintainedById: "Caretaker",
+  amenityIds: "Amenities",
+  mediaAdded: "Media Uploads",
+};
+
 /**
  * Builds the Sequelize where clause for isVerified filtering.
  * Supported values:
@@ -959,28 +1015,97 @@ const updateProperty = asyncHandler(async (req, res, next) => {
     try {
       const io = getIO();
       const prop = result.property;
-      const notifyUserIds = [prop.ownerId, prop.brokerId].filter(Boolean);
+      const updaterName = `${req.user.firstName} ${req.user.lastName}`;
+
+      // 1. Identify all potential recipients
+      const admins = await User.findAll({
+        include: [
+          {
+            model: Role,
+            as: "roles",
+            where: { roleName: { [Op.in]: ["Admin", "Super Admin"] } },
+            through: { attributes: [] },
+          },
+        ],
+        attributes: ["userId"],
+        raw: true,
+      });
+      const adminIds = admins.map((a) => a.userId);
+
+      let salesManagerId = null;
+      if (prop.salesId) {
+        const relationship = await SalesRelationship.findOne({
+          where: { salesExecutiveId: prop.salesId, isActive: true },
+        });
+        if (relationship) salesManagerId = relationship.salesManagerId;
+      }
+
+      // 2. Build the recipient list (excluding current user and duplicates)
+      const allRecipientIds = new Set([
+        prop.ownerId,
+        prop.brokerId,
+        prop.salesId,
+        salesManagerId,
+        ...adminIds,
+      ]);
+      allRecipientIds.delete(req.user.userId);
+      const notifyUserIds = Array.from(allRecipientIds).filter(Boolean);
+
+      // 3. Resolve Amenity Names (instead of IDs) for the notification message
+      if (result.previousValues.amenityIds || result.changedValues.amenityIds) {
+        const uniqueIds = new Set([
+          ...(result.previousValues.amenityIds || []),
+          ...(result.changedValues.amenityIds || []),
+        ]);
+        if (uniqueIds.size > 0) {
+          const amenities = await Amenity.findAll({
+            where: { amenityId: Array.from(uniqueIds) },
+            attributes: ["amenityId", "amenityName"],
+            raw: true,
+          });
+          const map = {};
+          amenities.forEach((a) => (map[a.amenityId] = a.amenityName));
+
+          if (result.previousValues.amenityIds) {
+            result.previousValues.amenityIds = result.previousValues.amenityIds
+              .map((id) => map[id] || id)
+              .join(", ");
+          }
+          if (result.changedValues.amenityIds) {
+            result.changedValues.amenityIds = result.changedValues.amenityIds
+              .map((id) => map[id] || id)
+              .join(", ");
+          }
+        }
+      }
 
       if (notifyUserIds.length > 0) {
-        const updaterName = `${req.user.firstName} ${req.user.lastName}`;
-        const changeLines = Object.keys(result.changedValues).map(
-          (field) =>
-            `${field}: ${result.previousValues[field] ?? "N/A"} → ${result.changedValues[field]}`
-        );
-        const message =
-          changeLines.length > 0
-            ? `Your property in ${prop.city} was updated by ${updaterName}.\n${changeLines.join("\n")}`
-            : `Your property in ${prop.city} was updated by ${updaterName}`;
-        const notificationRecords = notifyUserIds.map((uid) => ({
-          propertyId: prop.propertyId,
-          userId: uid,
-          title: "Property Updated",
-          notificationText: message,
-        }));
-        await PropertyNotificationEvent.bulkCreate(notificationRecords);
+        const changeLines = Object.keys(result.changedValues).map((field) => {
+          const label = FIELD_LABELS[field] || field;
+          const oldVal = result.previousValues[field] ?? "N/A";
+          const newVal = result.changedValues[field];
+          return `• ${label}: ${oldVal} → ${newVal}`;
+        });
 
+        const notificationRecords = [];
         const timestamp = new Date().toISOString();
-        notifyUserIds.forEach((uid) => {
+
+        for (const uid of notifyUserIds) {
+          // Customize message based on role
+          const isOwnerOrBroker = (uid === prop.ownerId || uid === prop.brokerId);
+          const prefix = isOwnerOrBroker ? "Your property" : `Property`;
+          const message =
+            changeLines.length > 0
+              ? `${prefix} in ${prop.city} was updated by ${updaterName}.\n${changeLines.join("\n")}`
+              : `${prefix} in ${prop.city} was updated by ${updaterName}`;
+
+          notificationRecords.push({
+            propertyId: prop.propertyId,
+            userId: uid,
+            title: "Property Updated",
+            notificationText: message,
+          });
+
           io.to(`user:${uid}`).emit("property:updated", {
             propertyId: prop.propertyId,
             title: "Property Updated",
@@ -991,7 +1116,11 @@ const updateProperty = asyncHandler(async (req, res, next) => {
             updatedBy: req.user.userId,
             timestamp,
           });
-        });
+        }
+
+        if (notificationRecords.length > 0) {
+          await PropertyNotificationEvent.bulkCreate(notificationRecords);
+        }
       }
     } catch (socketErr) {
       console.error("Socket notification failed:", socketErr.message);
