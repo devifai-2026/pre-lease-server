@@ -7,6 +7,8 @@ const {
   getPendingInquiries,
   assignInquiry,
   autoAssignInquiry,
+  getMyInquiries,
+  getInquiryById,
 } = require("../controllers/propertyInquiries");
 
 const { authenticateUser, checkRole } = require("../middlewares/auth");
@@ -16,6 +18,20 @@ router.post(
   "/inquiries/properties/:propertyId",
   authenticateUser,
   createPropertyInquiry
+);
+ 
+// ✅ Get inquiries by logged-in user
+router.get(
+  "/my-inquiries",
+  authenticateUser,
+  getMyInquiries
+);
+
+// ✅ Get enquiry details by ID
+router.get(
+  "/inquiries/:id",
+  authenticateUser,
+  getInquiryById
 );
 
 // ✅ Get pending/unassigned inquiries (Admin dashboard)

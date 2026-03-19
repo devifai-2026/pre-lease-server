@@ -23,13 +23,19 @@ const {
   addOwnerNoteForProperty,
 } = require("../controllers/notes");
 const {
+  toggleLikeProperty,
+  getWishlistProperties,
+  checkIfLiked,
+} = require("../controllers/wishlist");
+const {
   authenticateUser,
   checkPermission,
   checkSalesPerson,
   checkRole,
   checkAdminOrSuperAdmin,
 } = require("../middlewares/auth");
-const { multerUpload, uploadToGCS } = require("../middlewares/uploadGCS");
+const { multerUpload, uploadToCloudinary: uploadToGCS } = require("../middlewares/uploadCloudinary");
+
 
 // ============================================
 // PROPERTY CRUD OPERATIONS
@@ -97,6 +103,31 @@ router.get(
 router.get("/properties/:propertyId", getPropertyById);
 
 // ============================================
+// WISHLIST APIS
+// ============================================
+
+// ✅ Add / Remove property from wishlist
+router.post(
+  "/properties/:propertyId/like",
+  authenticateUser,
+  toggleLikeProperty
+);
+
+// ✅ Check if property is liked
+router.get(
+  "/properties/:propertyId/like",
+  authenticateUser,
+  checkIfLiked
+);
+
+// ✅ Get logged-in user wishlist
+router.get(
+  "/wishlist",
+  authenticateUser,
+  getWishlistProperties
+);
+
+// ============================================
 // INVESTOR NOTES (Investor Role)
 // ============================================
 
@@ -162,15 +193,21 @@ router.get(
   getPropertyWithNotes
 );
 
-// ============================================
-// OWNER: VIEW NOTES ON THEIR OWN PROPERTY
-// ============================================
-
-// ✅ Owner can see notes added by the sales exec on their property
+// ✅ Owner, Broker, and Investor can see approved notes on their property
 router.get(
   "/owner/properties/:propertyId/notes",
   authenticateUser,
-  checkRole(["Owner"]),
+  checkRole([
+    "Owner",
+    "Broker",
+    "Investor",
+    "Admin",
+    "Super Admin",
+    "Sales Manager",
+    "Sales Executive",
+    "Sales Executive - Property Manager",
+    "Sales Executive - Client Dealer",
+  ]),
   getPropertyNotesByOwner
 );
 
@@ -186,7 +223,17 @@ router.get(
 router.post(
   "/owner/properties/:propertyId/notes",
   authenticateUser,
-  checkRole(["Owner"]),
+  checkRole([
+    "Owner",
+    "Broker",
+    "Investor",
+    "Admin",
+    "Super Admin",
+    "Sales Manager",
+    "Sales Executive",
+    "Sales Executive - Property Manager",
+    "Sales Executive - Client Dealer",
+  ]),
   addOwnerNoteForProperty
 );
 

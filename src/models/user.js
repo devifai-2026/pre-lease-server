@@ -21,7 +21,6 @@ const User = sequelize.define(
     mobileNumber: {
       type: DataTypes.STRING(20),
       allowNull: false,
-      unique: true,
     },
     email: {
       type: DataTypes.STRING(255),
@@ -58,6 +57,11 @@ const User = sequelize.define(
       type: DataTypes.BOOLEAN,
       allowNull: false,
       defaultValue: true,
+    },
+    deletedAt: {
+      type: DataTypes.DATE,
+      allowNull: true,
+      defaultValue: null,
     },
     lastLoginAt: {
       type: DataTypes.DATE,

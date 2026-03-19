@@ -152,6 +152,7 @@ const createPropertyManagerNotes = asyncHandler(async (req, res, next) => {
             recipientIds.map((uid) => ({
               propertyId: property.propertyId,
               userId: uid,
+              title: "Note Pending",
               notificationText: message,
             }))
           );
@@ -160,6 +161,7 @@ const createPropertyManagerNotes = asyncHandler(async (req, res, next) => {
             io.to(`user:${uid}`).emit("property:note_pending_approval", {
               propertyId: property.propertyId,
               noteId: noteRecord.noteId,
+              title: "Note Pending",
               message,
               addedBy: callerId,
               timestamp,
@@ -179,6 +181,7 @@ const createPropertyManagerNotes = asyncHandler(async (req, res, next) => {
             recipientIds.map((uid) => ({
               propertyId: property.propertyId,
               userId: uid,
+              title: "Note Added",
               notificationText: message,
             }))
           );
@@ -186,6 +189,7 @@ const createPropertyManagerNotes = asyncHandler(async (req, res, next) => {
             io.to(`user:${uid}`).emit("property:note_added", {
               propertyId: property.propertyId,
               noteId: noteRecord.noteId,
+              title: "Note Added",
               message,
               addedBy: callerId,
               timestamp,
@@ -328,11 +332,13 @@ const approveOrEditNote = asyncHandler(async (req, res, next) => {
           await PropertyNotificationEvent.create({
             propertyId,
             userId: salesExecutiveId,
+            title: "Note Accepted",
             notificationText: execMessage,
           });
           io.to(`user:${salesExecutiveId}`).emit("property:note_approved", {
             propertyId,
             noteId,
+            title: "Note Accepted",
             message: execMessage,
             approvedBy: adminId,
             isEdited: wasEdited,
@@ -345,11 +351,13 @@ const approveOrEditNote = asyncHandler(async (req, res, next) => {
             await PropertyNotificationEvent.create({
               propertyId,
               userId: property.ownerId,
+              title: "Note Accepted",
               notificationText: ownerMessage,
             });
             io.to(`user:${property.ownerId}`).emit("property:note_approved", {
               propertyId,
               noteId,
+              title: "Note Accepted",
               message: ownerMessage,
               approvedBy: adminId,
               timestamp,
@@ -365,12 +373,14 @@ const approveOrEditNote = asyncHandler(async (req, res, next) => {
                 propertyId,
                 userId: uid,
                 notificationText: adminBroadcastMessage,
+                title: "Note Accepted",
               }))
             );
             otherAdminIds.forEach((uid) => {
               io.to(`user:${uid}`).emit("property:note_approved", {
                 propertyId,
                 noteId,
+                title: "Note Accepted",
                 message: adminBroadcastMessage,
                 approvedBy: adminId,
                 isEdited: wasEdited,
@@ -384,11 +394,13 @@ const approveOrEditNote = asyncHandler(async (req, res, next) => {
           await PropertyNotificationEvent.create({
             propertyId,
             userId: salesExecutiveId,
+            title: "Note Declined",
             notificationText: denyMessage,
           });
           io.to(`user:${salesExecutiveId}`).emit("property:note_denied", {
             propertyId,
             noteId,
+            title: "Note Declined",
             message: denyMessage,
             deniedBy: adminId,
             timestamp,
@@ -403,12 +415,14 @@ const approveOrEditNote = asyncHandler(async (req, res, next) => {
                 propertyId,
                 userId: uid,
                 notificationText: adminBroadcastMessage,
+                title: "Note Declined",
               }))
             );
             otherAdminIds.forEach((uid) => {
               io.to(`user:${uid}`).emit("property:note_denied", {
                 propertyId,
                 noteId,
+                title: "Note Declined",
                 message: adminBroadcastMessage,
                 deniedBy: adminId,
                 timestamp,
@@ -549,8 +563,16 @@ const getAllPropertiesWithNotes = asyncHandler(async (req, res, next) => {
         {
           model: User,
           as: "salesExecutive",
-          attributes: ["userId", "firstName", "lastName", "email"],
+          attributes: ["userId", "firstName", "lastName", "email", "userType"],
           required: false,
+          include: [
+            {
+              model: Role,
+              as: "roles",
+              attributes: ["roleName"],
+              through: { attributes: [] },
+            },
+          ],
         },
       ],
       order: [[sortBy, sortOrder.toUpperCase()]],
@@ -569,6 +591,14 @@ const getAllPropertiesWithNotes = asyncHandler(async (req, res, next) => {
 
         recordData.originalNote = recordData.notes;
         recordData.adminNote = recordData.isEdited ? recordData.editedNote : null;
+
+        const ownerId = recordData.property?.ownerId || null;
+        const creatorRoles = recordData.salesExecutive?.roles?.map(r => r.roleName) || [];
+        const isClientRole = creatorRoles.some(r => ["Owner", "Investor", "Broker"].includes(r));
+        const isClientUser = recordData.salesExecutive?.userType === 'client' || isClientRole;
+        
+        recordData.isOwnerNote = isClientUser || (ownerId ? recordData.salesExecutiveId === ownerId : false);
+
         delete recordData.notes;
         delete recordData.editedNote;
 
@@ -667,9 +697,18 @@ const getPropertyWithNotes = asyncHandler(async (req, res, next) => {
       });
       const teamIds = relationships.map((r) => r.salesExecutiveId);
       teamIds.push(salesExecutiveId);
+      // Also include owner/client notes
+      const propForOwner = await Property.findOne({
+        where: { propertyId, isActive: true },
+        attributes: ["ownerId"],
+        raw: true,
+      });
+      if (propForOwner && propForOwner.ownerId) {
+        teamIds.push(propForOwner.ownerId);
+      }
       notesWhere.salesExecutiveId = { [Op.in]: teamIds };
     } else {
-      // Dealer: see own notes + owner/client notes
+      // Dealer: see own notes + owner/client notes + any other exec notes on this property
       const dealerNoteIds = [salesExecutiveId];
       const propForOwner = await Property.findOne({
         where: { propertyId, isActive: true },
@@ -679,6 +718,21 @@ const getPropertyWithNotes = asyncHandler(async (req, res, next) => {
       if (propForOwner && propForOwner.ownerId) {
         dealerNoteIds.push(propForOwner.ownerId);
       }
+
+      // Also include all other executives who have contributed notes to this property
+      // so that a Property Manager can see Client Dealer notes and vice versa
+      const existingNoteAuthors = await PropertyManagerNotes.findAll({
+        where: { propertyId, isActive: true },
+        attributes: ["salesExecutiveId"],
+        group: ["salesExecutiveId"],
+        raw: true,
+      });
+      existingNoteAuthors.forEach((n) => {
+        if (n.salesExecutiveId && !dealerNoteIds.includes(n.salesExecutiveId)) {
+          dealerNoteIds.push(n.salesExecutiveId);
+        }
+      });
+
       notesWhere.salesExecutiveId = { [Op.in]: dealerNoteIds };
     }
 
@@ -734,8 +788,16 @@ const getPropertyWithNotes = asyncHandler(async (req, res, next) => {
             {
               model: User,
               as: "salesExecutive",
-              attributes: ["userId", "firstName", "lastName", "email", "mobileNumber"],
+              attributes: ["userId", "firstName", "lastName", "email", "mobileNumber", "userType"],
               required: false,
+              include: [
+                {
+                  model: Role,
+                  as: "roles",
+                  attributes: ["roleName"],
+                  through: { attributes: [] },
+                },
+              ],
             },
           ],
         },
@@ -761,7 +823,16 @@ const getPropertyWithNotes = asyncHandler(async (req, res, next) => {
         const formatted = { ...record };
         formatted.originalNote = record.notes;
         formatted.adminNote = record.isEdited ? record.editedNote : null;
-        formatted.isOwnerNote = ownerId ? record.salesExecutiveId === ownerId : false;
+        
+        // A note is considered an "Owner Note" (Client side) if the creator's userType is 'client'
+        // or if they have client roles (Owner, Investor, Broker)
+        // or if their ID matches the property's ownerId.
+        const creatorRoles = record.salesExecutive?.roles?.map(r => r.roleName) || [];
+        const isClientRole = creatorRoles.some(r => ["Owner", "Investor", "Broker"].includes(r));
+        const isClientUser = record.salesExecutive?.userType === 'client' || isClientRole;
+        
+        formatted.isOwnerNote = isClientUser || (ownerId ? record.salesExecutiveId === ownerId : false);
+        
         delete formatted.notes;
         delete formatted.editedNote;
         return formatted;
@@ -819,55 +890,50 @@ const getPropertyNotesByOwner = asyncHandler(async (req, res, next) => {
   const requestBodyLog = { propertyId, ownerId };
 
   try {
-    const property = await Property.findOne({
-      where: { propertyId, ownerId, isActive: true },
-      attributes: ["propertyId", "propertyType", "city", "state", "microMarket"],
+    const notes = await PropertyManagerNotes.findAll({
+      where: { propertyId, isActive: true, status: "approved" },
       include: [
         {
-          model: PropertyManagerNotes,
-          as: "managerNotes",
-          where: { isActive: true, status: "approved" },
+          model: User,
+          as: "salesExecutive",
+          attributes: ["userId", "firstName", "lastName", "email"],
           required: false,
-          include: [
-            {
-              model: User,
-              as: "salesExecutive",
-              attributes: ["userId", "firstName", "lastName", "email"],
-              required: false,
-            },
-          ],
         },
       ],
+      order: [["createdAt", "DESC"]],
     });
 
-    if (!property) {
-      throw createAppError("Property not found or you don't have access", 404);
-    }
-
-    const data = property.toJSON();
-    if (data.managerNotes) {
-      data.managerNotes = data.managerNotes.map((record) => {
-        const formatted = { ...record };
-        formatted.originalNote = record.notes;
-        formatted.adminNote = record.isEdited ? record.editedNote : null;
-        delete formatted.notes;
-        delete formatted.editedNote;
-        return formatted;
-      });
-    }
+    const formattedNotes = notes.map((record) => {
+      const recordData = record.toJSON();
+      recordData.originalNote = recordData.notes;
+      recordData.adminNote = recordData.isEdited ? recordData.editedNote : null;
+      delete recordData.notes;
+      delete recordData.editedNote;
+      return recordData;
+    });
 
     await logRequest(
       req,
       {
         userId: req.user.userId,
         status: 200,
-        body: { success: true, message: "Notes fetched successfully" },
+        body: {
+          success: true,
+          message: "Notes fetched successfully",
+          count: formattedNotes.length,
+        },
         requestBodyLog,
       },
       requestStartTime
     );
 
-    return sendEncodedResponse(res, 200, true, "Notes fetched successfully", data);
+    return sendEncodedResponse(
+      res,
+      200,
+      true,
+      "Notes fetched successfully",
+      formattedNotes
+    );
   } catch (error) {
     await logRequest(
       req,
@@ -987,13 +1053,15 @@ const addOwnerNoteForProperty = asyncHandler(async (req, res, next) => {
       throw createAppError("Note cannot exceed 5000 characters", 400);
     }
 
+    const where = { propertyId, isActive: true };
+
     const property = await Property.findOne({
-      where: { propertyId, ownerId, isActive: true },
+      where,
       attributes: ["propertyId", "isVerified", "city", "state", "salesId"],
     });
 
     if (!property) {
-      throw createAppError("Property not found or you don't have access", 404);
+      throw createAppError("Property not found", 404);
     }
 
     if (property.isVerified === "completed") {
@@ -1029,6 +1097,7 @@ const addOwnerNoteForProperty = asyncHandler(async (req, res, next) => {
           recipientIds.map((uid) => ({
             propertyId,
             userId: uid,
+            title: "Client Note",
             notificationText: message,
           }))
         );
@@ -1037,6 +1106,7 @@ const addOwnerNoteForProperty = asyncHandler(async (req, res, next) => {
           io.to(`user:${uid}`).emit("property:owner_note_added", {
             propertyId,
             noteId: noteRecord.noteId,
+            title: "Client Note",
             message,
             addedBy: ownerId,
             timestamp,

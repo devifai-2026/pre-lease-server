@@ -2,9 +2,34 @@ const express = require("express");
 const helmet = require("helmet");
 const cors = require("cors");
 const morgan = require("morgan");
+const { sequelize } = require("./config/dbConnection");
 // const { testDbConnection } = require("./config/dbConnection");
 // testDbConnection();
 const app = express();
+
+// ── Auto-migration: ensure deleted_at column exists on users ───────────────
+(async () => {
+  try {
+    await sequelize.query(
+      `ALTER TABLE users ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ DEFAULT NULL`
+    );
+    console.log("✓ Migration: deleted_at column ensured on users table");
+  } catch (e) {
+    console.warn("Migration warning (deleted_at):", e.message);
+  }
+})();
+
+// ── Auto-migration: ensure 'denied' value exists in note_status enum ────────
+(async () => {
+  try {
+    await sequelize.query(
+      `ALTER TYPE note_status ADD VALUE IF NOT EXISTS 'denied'`
+    );
+    console.log("✓ Migration: 'denied' added to note_status enum");
+  } catch (e) {
+    console.warn("Migration warning (note_status enum):", e.message);
+  }
+})();
 
 const NODE_ENV = process.env.NODE_ENV || "development";
 app.use(helmet());

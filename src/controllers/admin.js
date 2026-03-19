@@ -144,15 +144,12 @@ const createUser = asyncHandler(async (req, res, next) => {
     }
 
     const existingUser = await User.findOne({
-      where: { [Op.or]: [{ email }, { mobileNumber }] },
+      where: { email },
     });
 
     if (existingUser) {
       if (existingUser.email === email) {
         throw createAppError("Email already exists", 409);
-      }
-      if (existingUser.mobileNumber === mobileNumber) {
-        throw createAppError("Mobile number already exists", 409);
       }
     }
 
@@ -321,30 +318,79 @@ const updateUser = asyncHandler(async (req, res, next) => {
 
     const currentRole = existingUser.roles[0];
     if (currentRole.roleType === "client") {
-      throw createAppError(
-        "Cannot update client users (Owner, Broker, Investor) via admin API",
-        403
+      const isOnlyActiveStatusUpdate = Object.keys(req.body).every(
+        (key) => key === "isActive"
       );
+      if (!isOnlyActiveStatusUpdate) {
+        throw createAppError(
+          "Cannot update client users details (Owner, Broker, Investor) via admin API except their activation status",
+          403
+        );
+      }
     }
 
-    if (email || mobileNumber) {
-      const duplicateUser = await User.findOne({
-        where: {
-          userId: { [Op.ne]: userId },
-          [Op.or]: [
-            ...(email ? [{ email }] : []),
-            ...(mobileNumber ? [{ mobileNumber }] : []),
-          ],
-        },
-      });
+    // ── ONGOING PROCESS CHECK ──────────────────────────────────────────────
+    // Block deactivation of Sales Executives if they have ongoing work
+    if (
+      isActive === false &&
+      SALES_EXECUTIVE_ROLES.includes(currentRole.roleName)
+    ) {
+      const issues = [];
 
-      if (duplicateUser) {
-        if (duplicateUser.email === email) {
-          throw createAppError("Email already exists", 409);
+      // Property Manager: active properties still assigned to this exec
+      if (currentRole.roleName === "Sales Executive - Property Manager") {
+        const assignedProperties = await Property.count({
+          where: {
+            salesId: userId,
+            isActive: true,
+            sellingStatus: { [Op.ne]: "final closure" },
+          },
+        });
+        if (assignedProperties > 0) {
+          issues.push(
+            `${assignedProperties} active propert${assignedProperties === 1 ? "y" : "ies"} still assigned`
+          );
         }
-        if (duplicateUser.mobileNumber === mobileNumber) {
-          throw createAppError("Mobile number already exists", 409);
+      }
+
+      // Client Dealer: open inquiries assigned to this exec
+      if (currentRole.roleName === "Sales Executive - Client Dealer") {
+        const openInquiries = await PropertyInquiry.count({
+          where: { assignedTo: userId },
+        });
+        if (openInquiries > 0) {
+          issues.push(
+            `${openInquiries} open inquir${openInquiries === 1 ? "y" : "ies"} still assigned`
+          );
         }
+      }
+
+      if (issues.length > 0) {
+        throw createAppError(
+          `Cannot deactivate this user — they have ongoing processes: ${issues.join(", ")}. Please reassign before deactivating.`,
+          409
+        );
+      }
+    }
+    // ── END ONGOING PROCESS CHECK ──────────────────────────────────────────
+
+    if (email !== undefined || mobileNumber !== undefined) {
+      const orConditions = [];
+      if (email && email !== existingUser.email) orConditions.push({ email });
+
+      if (orConditions.length > 0) {
+          const duplicateUser = await User.findOne({
+            where: {
+              userId: { [Op.ne]: userId },
+              [Op.or]: orConditions,
+            },
+          });
+
+          if (duplicateUser) {
+            if (email && duplicateUser.email === email) {
+              throw createAppError("Email already exists", 409);
+            }
+          }
       }
     }
 
@@ -483,7 +529,7 @@ const deleteUser = asyncHandler(async (req, res, next) => {
 
   try {
     const existingUser = await User.findOne({
-      where: { userId, isActive: true },
+      where: { userId, deletedAt: null },
       include: [
         {
           model: Role,
@@ -498,20 +544,12 @@ const deleteUser = asyncHandler(async (req, res, next) => {
       throw createAppError("User not found or already deleted", 404);
     }
 
-    const currentRole = existingUser.roles[0];
-    if (currentRole.roleType === "client") {
-      throw createAppError(
-        "Cannot delete client users (Owner, Broker, Investor) via admin API",
-        403
-      );
-    }
-
     if (userId === req.user.userId) {
       throw createAppError("Cannot delete your own account", 403);
     }
 
     await sequelize.transaction(async (t) => {
-      await existingUser.update({ isActive: false }, { transaction: t });
+      await existingUser.update({ isActive: false, deletedAt: new Date() }, { transaction: t });
 
       await logUpdate({
         userId: req.user.userId,
@@ -590,12 +628,12 @@ const getAllUsers = asyncHandler(async (req, res, next) => {
   };
 
   try {
-    const whereClause = { userType: "admin" };
+    const whereClause = { userType: "admin", deletedAt: null };
 
-    if (isActive !== undefined) {
+    if (isActive !== undefined && isActive !== "all") {
       whereClause.isActive = isActive === "true";
-    } else {
-      // not to send the inactive users
+    } else if (isActive === undefined) {
+      // not to send the inactive users by default
       whereClause.isActive = true;
     }
 
@@ -754,7 +792,7 @@ const getUserById = asyncHandler(async (req, res, next) => {
 
   try {
     const user = await User.findOne({
-      where: { userId, isActive: true },
+      where: { userId },
       attributes: [
         "userId",
         "firstName",
@@ -886,15 +924,12 @@ const createSuperAdmin = asyncHandler(async (req, res, next) => {
     }
 
     const existingUser = await User.findOne({
-      where: { [Op.or]: [{ email }, { mobileNumber }] },
+      where: { email },
     });
 
     if (existingUser) {
       if (existingUser.email === email) {
         throw createAppError("Email already exists", 409);
-      }
-      if (existingUser.mobileNumber === mobileNumber) {
-        throw createAppError("Mobile number already exists", 409);
       }
     }
 
@@ -1185,10 +1220,13 @@ const reassignProperty = asyncHandler(async (req, res, next) => {
       notificationRecords.push({
         propertyId,
         userId,
+        title: "Property Assigned",
         notificationText: assigneeMessage,
       });
       io.to(`user:${userId}`).emit("property:assigned", {
         propertyId,
+        title: "Property Assigned",
+        message: assigneeMessage,
         city,
         state: result.state,
         propertyType: result.propertyType,
@@ -1203,10 +1241,13 @@ const reassignProperty = asyncHandler(async (req, res, next) => {
         notificationRecords.push({
           propertyId,
           userId: oldSalesId,
+          title: "Property Unassigned",
           notificationText: oldMessage,
         });
         io.to(`user:${oldSalesId}`).emit("property:unassigned", {
           propertyId,
+          title: "Property Unassigned",
+          message: oldMessage,
           city,
           state: result.state,
           propertyType: result.propertyType,
@@ -1227,10 +1268,13 @@ const reassignProperty = asyncHandler(async (req, res, next) => {
         notificationRecords.push({
           propertyId,
           userId: adminId,
+          title: "Property Assigned",
           notificationText: adminMessage,
         });
         io.to(`user:${adminId}`).emit("property:assigned", {
           propertyId,
+          title: "Property Assigned",
+          message: adminMessage,
           city,
           state: result.state,
           propertyType: result.propertyType,
@@ -1254,10 +1298,13 @@ const reassignProperty = asyncHandler(async (req, res, next) => {
         notificationRecords.push({
           propertyId,
           userId: salesManagerId,
+          title: "Property Assigned",
           notificationText: smMessage,
         });
         io.to(`user:${salesManagerId}`).emit("property:assigned", {
           propertyId,
+          title: "Property Assigned",
+          message: smMessage,
           city,
           state: result.state,
           propertyType: result.propertyType,
@@ -1281,10 +1328,13 @@ const reassignProperty = asyncHandler(async (req, res, next) => {
         notificationRecords.push({
           propertyId,
           userId: oldSalesManagerId,
+          title: "Property Unassigned",
           notificationText: oldSmMessage,
         });
         io.to(`user:${oldSalesManagerId}`).emit("property:unassigned", {
           propertyId,
+          title: "Property Unassigned",
+          message: oldSmMessage,
           city,
           state: result.state,
           propertyType: result.propertyType,
@@ -1628,10 +1678,12 @@ const verifyProperty = asyncHandler(async (req, res, next) => {
         notificationRecords.push({
           propertyId: property.propertyId,
           userId: recipientId,
+          title: "Property Verified",
           notificationText: message,
         });
         io.to(`user:${recipientId}`).emit("property:verified", {
           propertyId: property.propertyId,
+          title: "Property Verified",
           message,
           isVerified: newIsVerified,
           timestamp,
@@ -1895,6 +1947,7 @@ const adminGetAllProperties = asyncHandler(async (req, res, next) => {
     salesExecutiveId,
     salesManagerId,
     clientDealerId,
+    userId,
     sortBy = "createdAt",
     sortOrder = "DESC",
   } = req.query;
@@ -1910,6 +1963,7 @@ const adminGetAllProperties = asyncHandler(async (req, res, next) => {
       salesExecutiveId,
       salesManagerId,
       clientDealerId,
+      userId,
     },
   };
 
@@ -1919,6 +1973,15 @@ const adminGetAllProperties = asyncHandler(async (req, res, next) => {
     if (city) whereClause.city = { [Op.iLike]: `%${city}%` };
     if (state) whereClause.state = { [Op.iLike]: `%${state}%` };
     if (propertyType) whereClause.propertyType = propertyType;
+
+    // Filter by user (Owner, Broker, or Sales Executive)
+    if (userId) {
+      whereClause[Op.or] = [
+        { ownerId: userId },
+        { brokerId: userId },
+        { salesId: userId },
+      ];
+    }
 
     // Filter by a specific Sales Executive - Property Manager
     if (salesExecutiveId) {

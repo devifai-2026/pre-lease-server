@@ -140,7 +140,7 @@ const signup = asyncHandler(async (req, res, next) => {
     }
 
     // Build where condition dynamically to avoid undefined values
-    const whereConditions = [{ mobileNumber }, { email }];
+    const whereConditions = [{ email }];
 
     // Only add reraNumber to condition if it's provided
     if (reraNumber) {
@@ -164,10 +164,34 @@ const signup = asyncHandler(async (req, res, next) => {
     if (existingUser) {
       if (existingUser.email === email) {
         throw createAppError("Email already exists", 409);
-      } else if (existingUser.mobileNumber === mobileNumber) {
-        throw createAppError("Mobile number already exists", 409);
       } else if (reraNumber && existingUser.reraNumber === reraNumber) {
         throw createAppError("Rera number already exists", 409);
+      }
+    }
+
+    // For client roles (Investor, Owner, Broker): check if same mobile already has this role
+    const CLIENT_ROLES = ["Investor", "Owner", "Broker"];
+    const incomingRole = roleName || "Broker";
+    if (CLIENT_ROLES.includes(incomingRole) && mobileNumber) {
+      const existingMobileUser = await User.findOne({
+        where: { mobileNumber },
+        include: [
+          {
+            model: Role,
+            as: "roles",
+            where: { roleName: incomingRole, isActive: true },
+            through: { attributes: [] },
+            required: true,
+          },
+        ],
+        attributes: ["userId"],
+      });
+
+      if (existingMobileUser) {
+        throw createAppError(
+          `A ${incomingRole} account with this mobile number already exists`,
+          409
+        );
       }
     }
 
@@ -359,26 +383,58 @@ const login = asyncHandler(async (req, res, next) => {
     }
 
     // Check if user exists
-    const existingUser = await User.findOne({
-      where: { mobileNumber, isActive: true },
-      attributes: [
-        "mobileNumber",
-        "userId",
-        "userType",
-        "firstName",
-        "lastName",
-        "email",
-      ],
-      include: [
-        {
-          model: Role,
-          as: "roles",
-          through: { attributes: [] },
-          attributes: ["roleId", "roleName", "roleType"],
-          where: { isActive: true },
-        },
-      ],
-    });
+    let existingUser;
+    
+    // If roleName is provided, try to find an account that already has this role
+    if (roleName) {
+      // Normalize roleName
+      let normalizedRoleNameForSearch = roleName;
+      if (normalizedRoleNameForSearch === "Investor" || normalizedRoleNameForSearch === "Invertor") {
+        const possibleNames = ["Investor", "Inverstor", "Invertor"];
+        const existingRole = await Role.findOne({
+          where: { roleName: { [Op.in]: possibleNames }, isActive: true },
+        });
+        if (existingRole) normalizedRoleNameForSearch = existingRole.roleName;
+      }
+
+      existingUser = await User.findOne({
+        where: { mobileNumber, isActive: true },
+        include: [
+          {
+            model: Role,
+            as: "roles",
+            through: { attributes: [] },
+            attributes: ["roleId", "roleName", "roleType"],
+            where: { roleName: normalizedRoleNameForSearch, isActive: true },
+            required: true,
+          },
+        ],
+      });
+    }
+
+    // Fallback: If no roleName provided or no account has that role, find first active account
+    if (!existingUser) {
+      existingUser = await User.findOne({
+        where: { mobileNumber, isActive: true },
+        attributes: [
+          "mobileNumber",
+          "userId",
+          "userType",
+          "firstName",
+          "lastName",
+          "email",
+        ],
+        include: [
+          {
+            model: Role,
+            as: "roles",
+            through: { attributes: [] },
+            attributes: ["roleId", "roleName", "roleType"],
+            where: { isActive: true },
+          },
+        ],
+      });
+    }
 
     if (!existingUser) {
       throw createAppError("Account does not exist, please sign up first", 404);
@@ -792,16 +848,44 @@ const switchRole = asyncHandler(async (req, res, next) => {
       );
     }
 
-    const targetRole = req.user.roles.find(
+    // Check if current user account has the role
+    let targetUser = req.user;
+    let targetRole = req.user.roles.find(
       (r) => r.roleName === normalizedRoleName
     );
 
+    // If not found in current account, search for other accounts with same phone number
     if (!targetRole) {
+      const otherUser = await User.findOne({
+        where: { mobileNumber: req.user.mobileNumber, isActive: true },
+        include: [
+          {
+            model: Role,
+            as: "roles",
+            where: { roleName: normalizedRoleName, isActive: true },
+            required: true,
+          },
+        ],
+      });
+
+      if (otherUser) {
+        targetUser = otherUser;
+        targetRole = otherUser.roles[0];
+      }
+    }
+
+    if (!targetRole) {
+      // Get all available roles for this phone number for a better error message
+      const allAccounts = await User.findAll({
+        where: { mobileNumber: req.user.mobileNumber, isActive: true },
+        include: [{ model: Role, as: "roles", where: { isActive: true } }]
+      });
+      
+      const allAvailableRoles = [...new Set(allAccounts.flatMap(u => u.roles.map(r => r.roleName)))];
+      const switchingAvailableRoles = allAvailableRoles.filter(r => validClientRoles.includes(r));
+
       throw createAppError(
-        `You do not have the role '${normalizedRoleName}'. Available roles: ${req.user.roles
-          .filter((r) => validClientRoles.includes(r.roleName))
-          .map((r) => r.roleName)
-          .join(", ")}`,
+        `You do not have the role '${normalizedRoleName}' assigned to this phone number. Available roles: ${switchingAvailableRoles.join(", ")}`,
         403
       );
     }
@@ -814,12 +898,12 @@ const switchRole = asyncHandler(async (req, res, next) => {
     }
 
     const newAccessToken = Token.generateAccessToken(
-      req.user.userId,
+      targetUser.userId,
       normalizedRoleName
     );
 
     const newRefreshToken = Token.generateRefreshToken(
-      req.user.userId,
+      targetUser.userId,
       normalizedRoleName
     );
 
@@ -830,13 +914,13 @@ const switchRole = asyncHandler(async (req, res, next) => {
         lastUsedAt: new Date(),
       },
       {
-        where: { userId: req.user.userId, isActive: true },
+        where: { userId: targetUser.userId, isActive: true },
       }
     );
 
     if (updatedCount === 0) {
       await Token.create({
-        userId: req.user.userId,
+        userId: targetUser.userId,
         refreshToken: newRefreshToken,
         expiresAt: Token.calculateExpiryDate(process.env.REFRESH_TOKEN_EXPIRY),
         userAgent: req.headers["user-agent"] || null,
@@ -846,7 +930,7 @@ const switchRole = asyncHandler(async (req, res, next) => {
     }
 
     const data = {
-      userId: req.user.userId,
+      userId: targetUser.userId,
       previousRole: req.user.role,
       activeRole: normalizedRoleName,
       accessToken: newAccessToken,
@@ -900,11 +984,11 @@ const getClientUsers = asyncHandler(async (req, res, next) => {
   };
 
   try {
-    const whereClause = { userType: "client" };
+    const whereClause = { userType: "client", deletedAt: null };
 
-    if (isActive !== undefined) {
+    if (isActive !== undefined && isActive !== "all") {
       whereClause.isActive = isActive === "true";
-    } else {
+    } else if (isActive === undefined) {
       whereClause.isActive = true;
     }
 
@@ -1068,9 +1152,21 @@ const verifyOtpHandler = asyncHandler(async (req, res, next) => {
 // ============================================
 const changeMobileNumber = asyncHandler(async (req, res, next) => {
   const requestStartTime = Date.now();
-  const { newMobileNumber, otp, verificationId } = req.body;
-  const userId = req.user.userId;
+  const { newMobileNumber, otp, verificationId, userId: targetUserId } = req.body;
+  let userId = req.user.userId;
   const currentRole = req.user.role;
+
+  // Allow Admins/Sales Managers to change another user's mobile number
+  if (targetUserId && targetUserId !== req.user.userId) {
+    const allowedRoles = ["Admin", "Super Admin", "Sales Manager"];
+    if (!allowedRoles.includes(currentRole)) {
+      throw createAppError(
+        "Only Admin, Super Admin, or Sales Manager can change another user's mobile number",
+        403
+      );
+    }
+    userId = targetUserId;
+  }
 
   const requestBodyLog = {
     userId,
@@ -1100,14 +1196,6 @@ const changeMobileNumber = asyncHandler(async (req, res, next) => {
       );
     }
 
-    // Cannot be the same as current
-    if (req.user.mobileNumber === newMobileNumber) {
-      throw createAppError(
-        "New mobile number must be different from current mobile number",
-        400
-      );
-    }
-
     // Check if new number already taken by another user
     const existingUser = await User.findOne({
       where: { mobileNumber: newMobileNumber },
@@ -1129,18 +1217,26 @@ const changeMobileNumber = asyncHandler(async (req, res, next) => {
 
     // Start transaction
     const result = await sequelize.transaction(async (t) => {
-      // Fetch current user for audit log old values
-      const currentUser = await User.findOne({
+      // Fetch target user for audit log old values and basic validation
+      const targetUser = await User.findOne({
         where: { userId, isActive: true },
         attributes: ["userId", "mobileNumber"],
         transaction: t,
       });
 
-      if (!currentUser) {
+      if (!targetUser) {
         throw createAppError("User not found or inactive", 404);
       }
 
-      const oldMobileNumber = currentUser.mobileNumber;
+      // Cannot be the same as current for the target user
+      if (targetUser.mobileNumber === newMobileNumber) {
+        throw createAppError(
+          "New mobile number must be different from current mobile number",
+          400
+        );
+      }
+
+      const oldMobileNumber = targetUser.mobileNumber;
 
       // Update mobile number
       await User.update(
@@ -1154,10 +1250,19 @@ const changeMobileNumber = asyncHandler(async (req, res, next) => {
         { where: { userId, isActive: true }, transaction: t }
       );
 
-      // Create new refresh token
+      // Create new refresh token for the target user ONLY if they are updating themselves
+      let targetCurrentRole = currentRole;
+      if (userId !== req.user.userId) {
+         // fetch their role for the new token
+         const userRoles = await Role.findAll({
+            include: [{ model: User, as: "users", where: { userId }, through: {attributes: []} }]
+         });
+         targetCurrentRole = userRoles.length > 0 ? userRoles[0].roleName : "Owner";
+      }
+
       const newRefreshTokenStr = Token.generateRefreshToken(
         userId,
-        currentRole
+        targetCurrentRole
       );
       const newTokenRecord = await Token.create(
         {
@@ -1236,6 +1341,47 @@ const changeMobileNumber = asyncHandler(async (req, res, next) => {
   }
 });
 
+const getAvailableRoles = asyncHandler(async (req, res, next) => {
+  const requestStartTime = Date.now();
+  const mobileNumber = req.user.mobileNumber;
+
+  try {
+    // Find all active accounts with this mobile number
+    const accounts = await User.findAll({
+      where: { mobileNumber, isActive: true },
+      include: [
+        {
+          model: Role,
+          as: "roles",
+          where: { isActive: true },
+          attributes: ["roleName"],
+          through: { attributes: [] },
+        },
+      ],
+    });
+
+    const validClientRoles = ["Owner", "Broker", "Investor", "Inverstor", "Invertor"];
+    
+    // Extract unique role names that are valid client roles
+    const allRoles = [...new Set(accounts.flatMap(u => u.roles.map(r => r.roleName)))];
+    const availableRoles = allRoles.filter(r => validClientRoles.includes(r));
+
+    await logRequest(
+      req,
+      {
+        userId: req.user.userId,
+        status: 200,
+        body: { success: true, message: "Available roles fetched" },
+      },
+      requestStartTime
+    );
+
+    return sendEncodedResponse(res, 200, true, "Available roles fetched successfully", availableRoles);
+  } catch (error) {
+    return next(error);
+  }
+});
+
 module.exports = {
   sendOtpHandler,
   verifyOtpHandler,
@@ -1246,4 +1392,5 @@ module.exports = {
   switchRole,
   getClientUsers,
   changeMobileNumber,
+  getAvailableRoles,
 };

@@ -8,9 +8,11 @@ const admin = require("./admin");
 const inquiry = require("./inquiry");
 const rolePermission = require("./rolePermission");
 const analytics = require("./analytics");
+const brokers = require("./brokers");
 
 router.use(user);
 router.use(property);
+router.use(brokers);
 router.use("/admin", admin);
 router.use("/admin", analytics);
 router.use(inquiry);

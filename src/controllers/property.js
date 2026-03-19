@@ -11,6 +11,7 @@ const {
   SalesRelationship,
   PropertyNotificationEvent,
   PropertyVerificationLog,
+  PropertyManagerNotes,
 } = require("../models");
 const { sequelize } = require("../config/dbConnection");
 const createAppError = require("../utils/appError");
@@ -26,6 +27,25 @@ const { Op } = require("sequelize");
 const { sendEncodedResponse } = require("../utils/responseEncoder");
 const { attachSignedUrls } = require("../utils/gcsHelper");
 const { getIO } = require("../config/socket");
+
+/**
+ * Builds the Sequelize where clause for isVerified filtering.
+ * Supported values:
+ *   'pending'          → null or not in [completed, partial]
+ *   'completedOrPartial' → IN ['completed', 'partial']
+ *   'completed' | 'partial' → exact match
+ */
+const buildIsVerifiedClause = (isVerified) => {
+  if (!isVerified) return null;
+  if (isVerified === "pending") {
+    return { [Op.or]: [{ [Op.is]: null }, { [Op.notIn]: ["completed", "partial"] }] };
+  }
+  if (isVerified === "completedOrPartial") {
+    return { [Op.in]: ["completed", "partial"] };
+  }
+  return isVerified; // exact value: 'completed' | 'partial'
+};
+
 
 const ALLOWED_UPDATE_FIELDS = [
   "propertyType",
@@ -590,16 +610,20 @@ const createProperty = asyncHandler(async (req, res, next) => {
 
       // Notify Admins
       for (const adminId of adminIds) {
+        if (adminId === createdByUserId) continue;
         const message = assignedSalesId
           ? `${creatorName} has added a new property in ${city}. It has been auto-assigned to ${executiveName}.`
           : `${creatorName} has added a new property in ${city}. No Sales Executive was available for auto-assignment.`;
         notificationRecords.push({
           propertyId: propId,
           userId: adminId,
+          title: "Property Created",
           notificationText: message,
         });
         io.to(`user:${adminId}`).emit("property:created", {
+          id: propId,
           propertyId: propId,
+          title: "Property Created",
           message,
           city,
           propertyType: result.property.propertyType,
@@ -615,10 +639,13 @@ const createProperty = asyncHandler(async (req, res, next) => {
         notificationRecords.push({
           propertyId: propId,
           userId: assignedSalesId,
+          title: "Property Assigned",
           notificationText: message,
         });
         io.to(`user:${assignedSalesId}`).emit("property:created", {
+          id: propId,
           propertyId: propId,
+          title: "Property Assigned",
           message,
           city,
           propertyType: result.property.propertyType,
@@ -634,10 +661,13 @@ const createProperty = asyncHandler(async (req, res, next) => {
         notificationRecords.push({
           propertyId: propId,
           userId: salesManagerId,
+          title: "Property Created",
           notificationText: message,
         });
         io.to(`user:${salesManagerId}`).emit("property:created", {
+          id: propId,
           propertyId: propId,
+          title: "Property Created",
           message,
           city,
           propertyType: result.property.propertyType,
@@ -929,6 +959,7 @@ const updateProperty = asyncHandler(async (req, res, next) => {
         const notificationRecords = notifyUserIds.map((uid) => ({
           propertyId: prop.propertyId,
           userId: uid,
+          title: "Property Updated",
           notificationText: message,
         }));
         await PropertyNotificationEvent.bulkCreate(notificationRecords);
@@ -937,6 +968,8 @@ const updateProperty = asyncHandler(async (req, res, next) => {
         notifyUserIds.forEach((uid) => {
           io.to(`user:${uid}`).emit("property:updated", {
             propertyId: prop.propertyId,
+            title: "Property Updated",
+            message,
             updatedFields: result.updatedFields,
             updatedBy: req.user.userId,
             timestamp,
@@ -1388,6 +1421,10 @@ const getAllProperties = asyncHandler(async (req, res, next) => {
     sortBy = "createdAt",
     sortOrder = "DESC",
     isVerified,
+    ownerId,
+    brokerId,
+    salesId,
+    addedBy,
   } = req.query;
 
   const requestBodyLog = {
@@ -1400,6 +1437,7 @@ const getAllProperties = asyncHandler(async (req, res, next) => {
       roi: { minROI, maxROI },
       tenure: { minTenure, maxTenure },
       location: { city, state, microMarket },
+      userRels: { ownerId, brokerId, salesId, addedBy },
     },
     sortBy,
     sortOrder,
@@ -1407,6 +1445,10 @@ const getAllProperties = asyncHandler(async (req, res, next) => {
 
   try {
     const whereClause = { isActive: true };
+
+    if (addedBy) {
+      whereClause[Op.or] = [{ ownerId: addedBy }, { brokerId: addedBy }];
+    }
 
     if (minPrice || maxPrice) {
       whereClause.sellingPrice = {};
@@ -1485,14 +1527,12 @@ const getAllProperties = asyncHandler(async (req, res, next) => {
     }
 
     if (isVerified) {
-      if (isVerified === "pending") {
-        whereClause.isVerified = {
-          [Op.or]: [{ [Op.is]: null }, { [Op.notIn]: ["completed", "partial"] }],
-        };
-      } else {
-        whereClause.isVerified = isVerified;
-      }
+      whereClause.isVerified = buildIsVerifiedClause(isVerified);
     }
+
+    if (ownerId) whereClause.ownerId = ownerId;
+    if (brokerId) whereClause.brokerId = brokerId;
+    if (salesId) whereClause.salesId = salesId;
 
     const pageNumber = parseInt(page);
     const pageSize = parseInt(limit);
@@ -1594,6 +1634,13 @@ const getAllProperties = asyncHandler(async (req, res, next) => {
             "email",
             "mobileNumber",
           ],
+          required: false,
+        },
+        {
+          model: PropertyManagerNotes,
+          as: "managerNotes",
+          attributes: ["noteId", "status", "isActive", "createdAt"],
+          where: { isActive: true },
           required: false,
         },
         {
@@ -1858,13 +1905,7 @@ const getAssignedProperties = asyncHandler(async (req, res, next) => {
     }
 
     if (isVerified) {
-      if (isVerified === "pending") {
-        whereClause.isVerified = {
-          [Op.or]: [{ [Op.is]: null }, { [Op.notIn]: ["completed", "partial"] }],
-        };
-      } else {
-        whereClause.isVerified = isVerified;
-      }
+      whereClause.isVerified = buildIsVerifiedClause(isVerified);
     }
 
     const pageNumber = parseInt(page);
@@ -1986,6 +2027,13 @@ const getAssignedProperties = asyncHandler(async (req, res, next) => {
               attributes: ["userId", "firstName", "lastName", "email"],
             },
           ],
+        },
+        {
+          model: PropertyManagerNotes,
+          as: "managerNotes",
+          attributes: ["noteId", "status", "isActive", "createdAt"],
+          where: { isActive: true },
+          required: false,
         },
       ],
       order: [[sortBy, sortOrder.toUpperCase()]],
@@ -2274,13 +2322,7 @@ const getHotProperties = asyncHandler(async (req, res, next) => {
     const whereClause = { isActive: true };
 
     if (isVerified) {
-      if (isVerified === "pending") {
-        whereClause.isVerified = {
-          [Op.or]: [{ [Op.is]: null }, { [Op.notIn]: ["completed", "partial"] }],
-        };
-      } else {
-        whereClause.isVerified = isVerified;
-      }
+      whereClause.isVerified = buildIsVerifiedClause(isVerified);
     }
 
     const pageNumber = parseInt(page);
