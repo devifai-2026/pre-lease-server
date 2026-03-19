@@ -921,9 +921,15 @@ const updateProperty = asyncHandler(async (req, res, next) => {
         transaction: t,
       });
 
+      // Strip Sequelize auto-managed fields before exposing changed values
+      const { updatedAt, updatedBy: _ub, ...changedValues } = newValues;
+      const { updatedAt: _oAt, updatedBy: _oBy, ...previousValues } = oldValues;
+
       return {
         property: existingProperty,
         updatedFields: Object.keys(updateData),
+        changedValues,
+        previousValues,
         newMedia: newMediaRecords,
         amenitiesUpdated: amenityIds ? true : false,
       };
@@ -933,6 +939,8 @@ const updateProperty = asyncHandler(async (req, res, next) => {
       propertyId: result.property.propertyId,
       updatedBy: userRole,
       updatedFields: result.updatedFields,
+      previousValues: result.previousValues,
+      updatedValues: result.changedValues,
       newMediaCount: result.newMedia.length,
       amenitiesUpdated: result.amenitiesUpdated,
     };
@@ -955,7 +963,14 @@ const updateProperty = asyncHandler(async (req, res, next) => {
 
       if (notifyUserIds.length > 0) {
         const updaterName = `${req.user.firstName} ${req.user.lastName}`;
-        const message = `Your property in ${prop.city} was updated by ${updaterName}`;
+        const changeLines = Object.keys(result.changedValues).map(
+          (field) =>
+            `${field}: ${result.previousValues[field] ?? "N/A"} → ${result.changedValues[field]}`
+        );
+        const message =
+          changeLines.length > 0
+            ? `Your property in ${prop.city} was updated by ${updaterName}.\n${changeLines.join("\n")}`
+            : `Your property in ${prop.city} was updated by ${updaterName}`;
         const notificationRecords = notifyUserIds.map((uid) => ({
           propertyId: prop.propertyId,
           userId: uid,
@@ -971,6 +986,8 @@ const updateProperty = asyncHandler(async (req, res, next) => {
             title: "Property Updated",
             message,
             updatedFields: result.updatedFields,
+            changes: result.changedValues,
+            previousValues: result.previousValues,
             updatedBy: req.user.userId,
             timestamp,
           });
