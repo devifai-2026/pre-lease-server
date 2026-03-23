@@ -1760,7 +1760,6 @@ const getAllProperties = asyncHandler(async (req, res, next) => {
           as: "media",
           attributes: ["mediaId", "mediaType", "fileUrl"],
           required: false,
-          limit: 1,
           separate: true,
         },
         {
@@ -2132,7 +2131,6 @@ const getAssignedProperties = asyncHandler(async (req, res, next) => {
           as: "media",
           attributes: ["mediaId", "mediaType", "fileUrl"],
           required: false,
-          limit: 1,
           separate: true,
         },
         {
