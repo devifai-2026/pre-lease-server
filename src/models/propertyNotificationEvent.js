@@ -12,7 +12,8 @@ const PropertyNotificationEvent = sequelize.define(
     },
     propertyId: {
       type: DataTypes.UUID,
-      allowNull: false,
+      allowNull: true,
+      field: "property_id",
     },
     userId: {
       type: DataTypes.UUID,

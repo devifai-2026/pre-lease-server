@@ -290,6 +290,7 @@ const updateUser = asyncHandler(async (req, res, next) => {
     mobileNumber,
     roleName,
     isActive,
+    isVerified,
     salesManagerId,
   } = req.body;
 
@@ -298,6 +299,16 @@ const updateUser = asyncHandler(async (req, res, next) => {
     updatedFields: Object.keys(req.body),
     updatedBy: req.userRole,
   };
+
+  if (isVerified !== undefined) {
+    const allowedVerifierRoles = ["Admin", "Super Admin"];
+    if (!allowedVerifierRoles.includes(req.userRole)) {
+      throw createAppError(
+        "Only Admin or Super Admin can update verification status",
+        403
+      );
+    }
+  }
 
   try {
     const existingUser = await User.findOne({
@@ -318,12 +329,12 @@ const updateUser = asyncHandler(async (req, res, next) => {
 
     const currentRole = existingUser.roles[0];
     if (currentRole.roleType === "client") {
-      const isOnlyActiveStatusUpdate = Object.keys(req.body).every(
-        (key) => key === "isActive"
+      const isOnlyAllowedUpdate = Object.keys(req.body).every(
+        (key) => key === "isActive" || key === "isVerified"
       );
-      if (!isOnlyActiveStatusUpdate) {
+      if (!isOnlyAllowedUpdate) {
         throw createAppError(
-          "Cannot update client users details (Owner, Broker, Investor) via admin API except their activation status",
+          "Cannot update client users details (Owner, Broker, Investor) via admin API except their activation or verification status",
           403
         );
       }
@@ -372,6 +383,19 @@ const updateUser = asyncHandler(async (req, res, next) => {
         );
       }
     }
+
+    // Check for Broker properties before unverifying
+    if (isVerified === false && currentRole.roleName === "Broker") {
+      const propertyCount = await Property.count({
+        where: { brokerId: userId, isActive: true },
+      });
+      if (propertyCount > 0) {
+        throw createAppError(
+          `Cannot unverify this broker — they have ${propertyCount} active propert${propertyCount === 1 ? "y" : "ies"} listed.`,
+          409
+        );
+      }
+    }
     // ── END ONGOING PROCESS CHECK ──────────────────────────────────────────
 
     if (email !== undefined || mobileNumber !== undefined) {
@@ -414,6 +438,7 @@ const updateUser = asyncHandler(async (req, res, next) => {
       if (email) updateData.email = email;
       if (mobileNumber) updateData.mobileNumber = mobileNumber;
       if (isActive !== undefined) updateData.isActive = isActive;
+      if (isVerified !== undefined) updateData.isVerified = isVerified;
 
       if (Object.keys(updateData).length > 0) {
         await existingUser.update(updateData, { transaction: t });
@@ -480,6 +505,7 @@ const updateUser = asyncHandler(async (req, res, next) => {
       mobileNumber: result.user.mobileNumber,
       role: result.newRole.roleName,
       isActive: result.user.isActive,
+      isVerified: result.user.isVerified,
     };
 
     await logRequest(

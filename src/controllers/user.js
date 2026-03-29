@@ -240,6 +240,7 @@ const signup = asyncHandler(async (req, res, next) => {
           mobileNumber,
           userType: roleRecord.roleType || "client",
           isActive: true,
+          isVerified: roleRecord.roleName === "Broker" ? false : true,
           reraNumber: reraNumber || null,
         },
         { transaction: t }
@@ -311,6 +312,67 @@ const signup = asyncHandler(async (req, res, next) => {
       },
       requestStartTime
     );
+
+    // ✅ Notification for Broker Signup
+    if (result.role.roleName === "Broker") {
+      console.log(`[Signup] Broker registered: ${result.user.firstName} ${result.user.lastName}. Sending notifications to admins...`);
+      try {
+        const { getIO } = require("../config/socket");
+        const io = getIO();
+        const { PropertyNotificationEvent, User, Role } = require("../models");
+        const { Op } = require("sequelize");
+        const message = `Broker ${result.user.firstName} ${result.user.lastName} has registered and pending verification`;
+
+        // Find all admins to notify
+        const admins = await User.findAll({
+          include: [
+            {
+              model: Role,
+              as: "roles",
+              where: { roleName: { [Op.in]: ["Admin", "Super Admin"] } },
+              through: { attributes: [] },
+            },
+          ],
+          attributes: ["userId"],
+        });
+
+        console.log(`[Signup] Found ${admins.length} admins to notify.`);
+
+        const notificationRecords = [];
+
+        // 1. Notify the broker themselves
+        notificationRecords.push({
+          propertyId: null,
+          userId: result.user.userId,
+          title: "Registration Successful",
+          notificationText: "Your broker account has been registered and is pending verification. please login after some time.",
+        });
+
+        // 2. Notify admins
+        for (const admin of admins) {
+          const adminId = admin.userId;
+          notificationRecords.push({
+            propertyId: null,
+            userId: adminId,
+            title: "New Broker Registered",
+            notificationText: message,
+          });
+          io.to(`user:${adminId}`).emit("broker:registered", {
+            userId: result.user.userId,
+            title: "New Broker Registered",
+            message,
+            timestamp: new Date().toISOString(),
+          });
+          console.log(`[Signup] Notification sent/queued for admin: ${adminId}`);
+        }
+        if (notificationRecords.length > 0) {
+          await PropertyNotificationEvent.bulkCreate(notificationRecords);
+          console.log(`[Signup] ${notificationRecords.length} notification records created in DB.`);
+        }
+      } catch (err) {
+        console.error("Broker signup notification failed:", err.message);
+      }
+    }
 
     return sendEncodedResponse(
       res,
@@ -1012,6 +1074,7 @@ const getClientUsers = asyncHandler(async (req, res, next) => {
         "isActive",
         "createdAt",
         "reraNumber",
+        "isVerified",
       ],
       include: [
         {
@@ -1047,6 +1110,7 @@ const getClientUsers = asyncHandler(async (req, res, next) => {
       isActive: user.isActive,
       createdAt: user.createdAt,
       reraNumber: user.reraNumber,
+      isVerified: user.isVerified,
     }));
 
     await logRequest(
