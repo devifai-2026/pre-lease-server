@@ -20,6 +20,7 @@ const PropertyInquiry = require("./propertyInquiries");
 const PropertyNotificationEvent = require("./propertyNotificationEvent");
 const PropertyVerificationLog = require("./propertyVerificationLog");
 const PropertyLike = require("./propertyLike");
+const BrokerProfile = require("./brokerProfile");
 
 // ============================================
 // USER & ROLE ASSOCIATIONS
@@ -383,6 +384,14 @@ PropertyVerificationLog.belongsTo(User, {
 });
 
 // ============================================
+// BROKER PROFILE ASSOCIATIONS
+// ============================================
+
+// User <-> BrokerProfile (One-to-One)
+User.hasOne(BrokerProfile, { foreignKey: "userId", as: "brokerProfile" });
+BrokerProfile.belongsTo(User, { foreignKey: "userId", as: "user" });
+
+// ============================================
 // PROPERTY LIKE (WISHLIST) ASSOCIATIONS
 // ============================================
 
@@ -432,4 +441,5 @@ module.exports = {
   PropertyNotificationEvent,
   PropertyVerificationLog,
   PropertyLike,
+  BrokerProfile,
 };

@@ -13,6 +13,7 @@ const {
   PropertyCertification,
   PropertyConnectivity,
   PropertyInquiry,
+  BrokerProfile,
 } = require("../models");
 const {
   validateRequiredFields,
@@ -835,6 +836,12 @@ const getUserById = asyncHandler(async (req, res, next) => {
           as: "roles",
           through: { attributes: [] },
           attributes: ["roleId", "roleName", "roleType"],
+        },
+        {
+          model: BrokerProfile,
+          as: "brokerProfile",
+          required: false,
+          attributes: ["profilePhoto", "companyName", "locality", "specializations", "dealsClosed"],
         },
       ],
     });

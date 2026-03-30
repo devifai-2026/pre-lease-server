@@ -31,6 +31,32 @@ const app = express();
   }
 })();
 
+// ── Auto-migration: ensure broker_profiles table exists ──────────────────────
+(async () => {
+  try {
+    await sequelize.query(`
+      CREATE TABLE IF NOT EXISTS broker_profiles (
+        profile_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        user_id UUID NOT NULL UNIQUE REFERENCES users(user_id) ON DELETE CASCADE,
+        company_name VARCHAR(255),
+        locality VARCHAR(255),
+        specializations TEXT,
+        deals_closed INTEGER DEFAULT 0,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      )
+    `);
+    console.log("✓ Migration: broker_profiles table ensured");
+    // Add profile_photo column if it doesn't exist yet
+    await sequelize.query(
+      `ALTER TABLE broker_profiles ADD COLUMN IF NOT EXISTS profile_photo TEXT`
+    );
+    console.log("✓ Migration: profile_photo column ensured on broker_profiles");
+  } catch (e) {
+    console.warn("Migration warning (broker_profiles):", e.message);
+  }
+})();
+
 const NODE_ENV = process.env.NODE_ENV || "development";
 app.use(helmet());
 app.use(

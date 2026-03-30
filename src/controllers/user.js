@@ -1,5 +1,5 @@
 const { Op } = require("sequelize");
-const { User, Role, UserRole, Token } = require("../models/index");
+const { User, Role, UserRole, Token, BrokerProfile } = require("../models/index");
 const {
   isValidEmail,
   isValidPhone,
@@ -1084,6 +1084,11 @@ const getClientUsers = asyncHandler(async (req, res, next) => {
           attributes: ["roleId", "roleName", "roleType"],
           where: roleWhere,
         },
+        {
+          model: BrokerProfile,
+          as: "brokerProfile",
+          required: false,
+        },
       ],
       order: [["createdAt", "DESC"]],
       limit: pageSize,
@@ -1101,17 +1106,29 @@ const getClientUsers = asyncHandler(async (req, res, next) => {
       usersPerPage: pageSize,
     };
 
-    const formattedUsers = users.map((user) => ({
-      userId: user.userId,
-      name: `${user.firstName || ""} ${user.lastName || ""}`.trim(),
-      email: user.email,
-      mobileNumber: user.mobileNumber,
-      role: user.roles[0]?.roleName || null,
-      isActive: user.isActive,
-      createdAt: user.createdAt,
-      reraNumber: user.reraNumber,
-      isVerified: user.isVerified,
-    }));
+    const formattedUsers = users.map((user) => {
+      const profile = user.brokerProfile;
+      return {
+        userId: user.userId,
+        name: `${user.firstName || ""} ${user.lastName || ""}`.trim(),
+        email: user.email,
+        mobileNumber: user.mobileNumber,
+        role: user.roles[0]?.roleName || null,
+        isActive: user.isActive,
+        createdAt: user.createdAt,
+        reraNumber: user.reraNumber,
+        isVerified: user.isVerified,
+        brokerProfile: profile
+          ? {
+              companyName: profile.companyName,
+              locality: profile.locality,
+              specializations: profile.specializations,
+              dealsClosed: profile.dealsClosed,
+              profilePhoto: profile.profilePhoto,
+            }
+          : null,
+      };
+    });
 
     await logRequest(
       req,
