@@ -1,5 +1,6 @@
 const { Op } = require("sequelize");
 const { User, Role, UserRole, Token, BrokerProfile } = require("../models/index");
+const { autoAssignRole } = require("../utils/roleHelper");
 const {
   isValidEmail,
   isValidPhone,
@@ -82,49 +83,47 @@ const signup = asyncHandler(async (req, res, next) => {
     email,
     firstName,
     lastName,
-    reraNumber,
-    roleName,
     otp,
     verificationId,
+    joinType,          // "investor" or "broker"
+    // Broker-only fields
+    reraNumber,
+    companyName,
+    locality,
+    specializations: rawSpecializations,
+    dealsClosed,
   } = req.body;
 
-  // Prepare log-safe request body (redact sensitive data)
   const requestBodyLog = {
-    email, // ✅ Keep email for failure tracking
-    mobileNumber, // ✅ Keep mobile for failure tracking
+    email,
+    mobileNumber,
     firstName,
     lastName,
+    joinType,
     reraNumber,
-    roleName,
     otp: otp ? "[REDACTED]" : null,
     verificationId: verificationId ? "[PRESENT]" : null,
     deviceId: req.body.deviceId ? "[REDACTED]" : null,
   };
 
   try {
-    // Validate required fields
-    const requiredFields = [
-      "mobileNumber",
-      "email",
-      "firstName",
-      "lastName",
-      "otp",
-      "verificationId",
-    ];
-    const missing = validateRequiredFields(requiredFields, req.body);
+    // ── Required base fields ──────────────────────────────────────────────────
+    const missing = validateRequiredFields(
+      ["mobileNumber", "email", "firstName", "lastName", "otp", "verificationId", "joinType"],
+      req.body
+    );
     if (missing.length > 0) {
-      throw createAppError(
-        `Missing required fields: ${missing.join(", ")}`,
-        400
-      );
+      throw createAppError(`Missing required fields: ${missing.join(", ")}`, 400);
     }
 
-    // Validate email format
+    if (!["investor", "broker"].includes(joinType)) {
+      throw createAppError('joinType must be "investor" or "broker"', 400);
+    }
+
     if (!isValidEmail(email)) {
       throw createAppError("Invalid email format", 400);
     }
 
-    // Validate mobile number (10 digits, starts with 6-9)
     if (!isValidPhone(mobileNumber)) {
       throw createAppError(
         "Invalid mobile number. Must be 10 digits starting with 6-9",
@@ -132,141 +131,130 @@ const signup = asyncHandler(async (req, res, next) => {
       );
     }
 
-    // Verify OTP via MessageCentral
-    // TODO: Remove this after testing
-    // await otpService.verifyOtp(verificationId, otp);
+    // ── Broker-specific required fields ───────────────────────────────────────
+    if (joinType === "broker") {
+      const brokerMissing = validateRequiredFields(
+        ["reraNumber", "locality", "specializations", "dealsClosed"],
+        req.body
+      );
+      if (brokerMissing.length > 0) {
+        throw createAppError(
+          `Broker signup requires: ${brokerMissing.join(", ")}`,
+          400
+        );
+      }
+    }
+
+    // ── Verify OTP ────────────────────────────────────────────────────────────
     if (otp !== "111111") {
       await otpService.verifyOtp(verificationId, otp);
     }
 
-    // Build where condition dynamically to avoid undefined values
+    // ── Check for duplicate email / reraNumber ────────────────────────────────
     const whereConditions = [{ email }];
+    if (reraNumber) whereConditions.push({ reraNumber });
 
-    // Only add reraNumber to condition if it's provided
-    if (reraNumber) {
-      whereConditions.push({ reraNumber });
-    }
-
-    // Check if user already exists
     const existingUser = await User.findOne({
-      where: {
-        [Op.or]: whereConditions,
-      },
-      attributes: [
-        "mobileNumber",
-        "email",
-        "reraNumber",
-        "otp",
-        "otpExpiresAt",
-      ],
+      where: { [Op.or]: whereConditions },
+      attributes: ["email", "reraNumber"],
     });
 
     if (existingUser) {
       if (existingUser.email === email) {
         throw createAppError("Email already exists", 409);
-      } else if (reraNumber && existingUser.reraNumber === reraNumber) {
-        throw createAppError("Rera number already exists", 409);
+      }
+      if (reraNumber && existingUser.reraNumber === reraNumber) {
+        throw createAppError("RERA number already exists", 409);
       }
     }
 
-    // For client roles (Investor, Owner, Broker): check if same mobile already has this role
-    const CLIENT_ROLES = ["Investor", "Owner", "Broker"];
-    const incomingRole = roleName || "Broker";
-    if (CLIENT_ROLES.includes(incomingRole) && mobileNumber) {
-      const existingMobileUser = await User.findOne({
-        where: { mobileNumber },
-        include: [
-          {
-            model: Role,
-            as: "roles",
-            where: { roleName: incomingRole, isActive: true },
-            through: { attributes: [] },
-            required: true,
-          },
-        ],
-        attributes: ["userId"],
-      });
-
-      if (existingMobileUser) {
-        throw createAppError(
-          `A ${incomingRole} account with this mobile number already exists`,
-          409
-        );
-      }
-    }
-
-    // Normalize roleName to handle common typos like Inverstor or Invertor
-    let normalizedRoleName = roleName || "Broker";
-    if (
-      normalizedRoleName === "Investor" ||
-      normalizedRoleName === "Invertor"
-    ) {
-      // Check if DB uses spelling with 's' or 't' or correct one
-      const possibleNames = ["Investor", "Inverstor", "Invertor"];
-      const existingRole = await Role.findOne({
-        where: {
-          roleName: { [Op.in]: possibleNames },
-          isActive: true,
-        },
-      });
-      if (existingRole) {
-        normalizedRoleName = existingRole.roleName;
-      }
-    }
-
-    // Find role from roles table
-    const roleRecord = await Role.findOne({
-      where: {
-        roleName: normalizedRoleName,
-        isActive: true,
-      },
+    // ── Check duplicate mobile ────────────────────────────────────────────────
+    const existingMobile = await User.findOne({
+      where: { mobileNumber },
+      attributes: ["userId"],
     });
-
-    if (!roleRecord) {
-      throw createAppError(
-        "Invalid role. Please choose a valid role from the list.",
-        400
-      );
+    if (existingMobile) {
+      throw createAppError("An account with this mobile number already exists", 409);
     }
 
-    // Start transaction
+    // ── Parse specializations for broker ──────────────────────────────────────
+    let specializations = rawSpecializations;
+    if (joinType === "broker") {
+      if (typeof specializations === "string") {
+        try {
+          specializations = JSON.parse(specializations);
+        } catch {
+          specializations = specializations.split(",").map((s) => s.trim()).filter(Boolean);
+        }
+      }
+      if (!Array.isArray(specializations) || specializations.length === 0) {
+        throw createAppError("At least one specialization is required", 400);
+      }
+    }
+
+    // ── Transaction ───────────────────────────────────────────────────────────
     const result = await sequelize.transaction(async (t) => {
-      // Create user (✅ with otp and otpExpiresAt as null after verification)
       const createUser = await User.create(
         {
           firstName,
           lastName,
           email,
           mobileNumber,
-          userType: roleRecord.roleType || "client",
+          userType: "client",
           isActive: true,
-          isVerified: roleRecord.roleName === "Broker" ? false : true,
+          isVerified: joinType === "broker" ? false : true,
           reraNumber: reraNumber || null,
+          joinType,
+          isGuest: joinType === "investor", // investor starts as guest; broker gets role immediately
         },
         { transaction: t }
       );
 
-      // Create user role
-      await UserRole.create(
-        {
-          userId: createUser.userId,
-          roleId: roleRecord.roleId,
-          assignedBy: null,
-        },
-        { transaction: t }
+      let assignedRole = null;
+
+      if (joinType === "broker") {
+        // Find Broker role
+        const brokerRole = await Role.findOne({
+          where: { roleName: "Broker", isActive: true },
+        });
+        if (!brokerRole) throw createAppError("Broker role not configured", 500);
+
+        await UserRole.create(
+          {
+            userId: createUser.userId,
+            roleId: brokerRole.roleId,
+            assignedBy: null,
+            assignedReason: "signup",
+          },
+          { transaction: t }
+        );
+
+        // Create broker profile
+        await BrokerProfile.create(
+          {
+            userId: createUser.userId,
+            companyName: companyName || null,
+            locality: String(locality).trim(),
+            specializations,
+            dealsClosed: parseInt(dealsClosed) || 0,
+          },
+          { transaction: t }
+        );
+
+        assignedRole = brokerRole.roleName;
+      }
+      // investor: no role assigned yet, isGuest = true
+
+      const refreshTokenStr = Token.generateRefreshToken(
+        createUser.userId,
+        assignedRole || "guest"
       );
 
-      // Create refresh token
       const tokenRecord = await Token.create(
         {
           userId: createUser.userId,
-          refreshToken: Token.generateRefreshToken(
-            createUser.userId,
-            roleRecord.roleName
-          ),
-          expiresAt: Token.calculateExpiryDate(
-            process.env.REFRESH_TOKEN_EXPIRY
-          ),
+          refreshToken: refreshTokenStr,
+          expiresAt: Token.calculateExpiryDate(process.env.REFRESH_TOKEN_EXPIRY),
           deviceId: req.body.deviceId || null,
           userAgent: req.headers["user-agent"] || null,
           ipAddress: req.ip || null,
@@ -277,19 +265,21 @@ const signup = asyncHandler(async (req, res, next) => {
 
       return {
         user: createUser,
-        role: roleRecord,
+        roleName: assignedRole,
         refreshToken: tokenRecord.refreshToken,
       };
     });
 
     const accessToken = Token.generateAccessToken(
       result.user.userId,
-      result.role.roleName
+      result.roleName || "guest"
     );
 
     const data = {
       userId: result.user.userId,
-      role: result.role.roleName,
+      joinType,
+      isGuest: result.user.isGuest,
+      roles: result.roleName ? [result.roleName] : [],
       accessToken,
       refreshToken: result.refreshToken,
       name: `${result.user.firstName} ${result.user.lastName}`,
@@ -297,7 +287,6 @@ const signup = asyncHandler(async (req, res, next) => {
       mobileNumber: result.user.mobileNumber,
     };
 
-    // ✅ Log successful API request
     await logRequest(
       req,
       {
@@ -306,24 +295,22 @@ const signup = asyncHandler(async (req, res, next) => {
         body: { success: true, message: "User created successfully" },
         requestBodyLog: {
           ...requestBodyLog,
-          email: "[SUCCESS]", // ✅ Redact on success
-          mobileNumber: "[SUCCESS]", // ✅ Redact on success
+          email: "[SUCCESS]",
+          mobileNumber: "[SUCCESS]",
         },
       },
       requestStartTime
     );
 
-    // ✅ Notification for Broker Signup
-    if (result.role.roleName === "Broker") {
+    // ── Notify admins on broker signup ────────────────────────────────────────
+    if (joinType === "broker") {
       console.log(`[Signup] Broker registered: ${result.user.firstName} ${result.user.lastName}. Sending notifications to admins...`);
       try {
         const { getIO } = require("../config/socket");
         const io = getIO();
-        const { PropertyNotificationEvent, User, Role } = require("../models");
-        const { Op } = require("sequelize");
-        const message = `Broker ${result.user.firstName} ${result.user.lastName} has registered and pending verification`;
+        const { PropertyNotificationEvent } = require("../models");
+        const message = `Broker ${result.user.firstName} ${result.user.lastName} has registered and is pending verification`;
 
-        // Find all admins to notify
         const admins = await User.findAll({
           include: [
             {
@@ -336,60 +323,48 @@ const signup = asyncHandler(async (req, res, next) => {
           attributes: ["userId"],
         });
 
-        console.log(`[Signup] Found ${admins.length} admins to notify.`);
+        const notificationRecords = [
+          {
+            propertyId: null,
+            userId: result.user.userId,
+            title: "Registration Successful",
+            notificationText:
+              "Your broker account has been registered and is pending verification. Please login after some time.",
+          },
+        ];
 
-        const notificationRecords = [];
-
-        // 1. Notify the broker themselves
-        notificationRecords.push({
-          propertyId: null,
-          userId: result.user.userId,
-          title: "Registration Successful",
-          notificationText: "Your broker account has been registered and is pending verification. please login after some time.",
-        });
-
-        // 2. Notify admins
         for (const admin of admins) {
-          const adminId = admin.userId;
           notificationRecords.push({
             propertyId: null,
-            userId: adminId,
+            userId: admin.userId,
             title: "New Broker Registered",
             notificationText: message,
           });
-          io.to(`user:${adminId}`).emit("broker:registered", {
+          io.to(`user:${admin.userId}`).emit("broker:registered", {
             userId: result.user.userId,
             title: "New Broker Registered",
             message,
             timestamp: new Date().toISOString(),
           });
-          console.log(`[Signup] Notification sent/queued for admin: ${adminId}`);
         }
+
         if (notificationRecords.length > 0) {
           await PropertyNotificationEvent.bulkCreate(notificationRecords);
-          console.log(`[Signup] ${notificationRecords.length} notification records created in DB.`);
         }
       } catch (err) {
         console.error("Broker signup notification failed:", err.message);
       }
     }
 
-    return sendEncodedResponse(
-      res,
-      201,
-      true,
-      "User created successfully",
-      data
-    );
+    return sendEncodedResponse(res, 201, true, "User created successfully", data);
   } catch (error) {
-    // ✅ Log failed API request (keep email/mobile for support)
     await logRequest(
       req,
       {
         userId: null,
         status: error.statusCode || 500,
         body: { success: false, message: error.message },
-        requestBodyLog, // ✅ Keep email/mobile for failure investigation
+        requestBodyLog,
         error: error.message,
         stackTrace: error.stack,
       },
@@ -407,29 +382,24 @@ const signup = asyncHandler(async (req, res, next) => {
 const login = asyncHandler(async (req, res, next) => {
   const requestStartTime = Date.now();
 
-  const { mobileNumber, otp, roleName, verificationId } = req.body;
+  const { mobileNumber, otp, verificationId } = req.body;
 
-  // Prepare log-safe request body
   const requestBodyLog = {
-    mobileNumber, // ✅ Keep mobile for failure tracking
+    mobileNumber,
     otp: otp ? "[REDACTED]" : null,
     verificationId: verificationId ? "[PRESENT]" : null,
     deviceId: req.body.deviceId ? "[REDACTED]" : null,
-    roleName,
   };
 
   try {
-    // Validate required fields
-    const requiredFields = ["mobileNumber", "otp", "verificationId"];
-    const missing = validateRequiredFields(requiredFields, req.body);
+    const missing = validateRequiredFields(
+      ["mobileNumber", "otp", "verificationId"],
+      req.body
+    );
     if (missing.length > 0) {
-      throw createAppError(
-        `Missing required fields: ${missing.join(", ")}`,
-        400
-      );
+      throw createAppError(`Missing required fields: ${missing.join(", ")}`, 400);
     }
 
-    // Validate mobile number
     if (!isValidPhone(mobileNumber)) {
       throw createAppError(
         "Invalid mobile number. Must be 10 digits starting with 6-9",
@@ -437,142 +407,39 @@ const login = asyncHandler(async (req, res, next) => {
       );
     }
 
-    // Verify OTP via MessageCentral
     // TODO: Remove this after testing
-    // await otpService.verifyOtp(verificationId, otp);
     if (otp !== "111111") {
       await otpService.verifyOtp(verificationId, otp);
     }
 
-    // Check if user exists
-    let existingUser;
-    
-    // If roleName is provided, try to find an account that already has this role
-    if (roleName) {
-      // Normalize roleName
-      let normalizedRoleNameForSearch = roleName;
-      if (normalizedRoleNameForSearch === "Investor" || normalizedRoleNameForSearch === "Invertor") {
-        const possibleNames = ["Investor", "Inverstor", "Invertor"];
-        const existingRole = await Role.findOne({
-          where: { roleName: { [Op.in]: possibleNames }, isActive: true },
-        });
-        if (existingRole) normalizedRoleNameForSearch = existingRole.roleName;
-      }
-
-      existingUser = await User.findOne({
-        where: { mobileNumber, isActive: true },
-        include: [
-          {
-            model: Role,
-            as: "roles",
-            through: { attributes: [] },
-            attributes: ["roleId", "roleName", "roleType"],
-            where: { roleName: normalizedRoleNameForSearch, isActive: true },
-            required: true,
-          },
-        ],
-      });
-    }
-
-    // Fallback: If no roleName provided or no account has that role, find first active account
-    if (!existingUser) {
-      existingUser = await User.findOne({
-        where: { mobileNumber, isActive: true },
-        attributes: [
-          "mobileNumber",
-          "userId",
-          "userType",
-          "firstName",
-          "lastName",
-          "email",
-        ],
-        include: [
-          {
-            model: Role,
-            as: "roles",
-            through: { attributes: [] },
-            attributes: ["roleId", "roleName", "roleType"],
-            where: { isActive: true },
-          },
-        ],
-      });
-    }
+    // Find user — guest users (no roles yet) are allowed to log in
+    const existingUser = await User.findOne({
+      where: { mobileNumber, isActive: true },
+      attributes: [
+        "userId", "mobileNumber", "userType", "firstName", "lastName",
+        "email", "joinType", "isGuest",
+      ],
+      include: [
+        {
+          model: Role,
+          as: "roles",
+          through: { attributes: [] },
+          attributes: ["roleId", "roleName", "roleType"],
+          where: { isActive: true },
+          required: false, // guest users have no roles
+        },
+      ],
+    });
 
     if (!existingUser) {
       throw createAppError("Account does not exist, please sign up first", 404);
     }
 
-    if (!existingUser.roles || existingUser.roles.length === 0) {
-      throw createAppError("No active role assigned to this account", 403);
-    }
+    const roles = existingUser.roles || [];
+    const primaryRole = roles[0]?.roleName || "guest";
 
-    // Determine active role for this login session
-    let activeRoleName = existingUser.roles[0].roleName;
+    const refreshToken = Token.generateRefreshToken(existingUser.userId, primaryRole);
 
-    // If roleName is provided and it's a client role, add it if not already assigned
-    if (roleName && existingUser.userType === "client") {
-      // Normalize roleName to handle common typos like Inverstor or Invertor
-      let normalizedRoleName = roleName;
-      if (
-        normalizedRoleName === "Investor" ||
-        normalizedRoleName === "Invertor"
-      ) {
-        const possibleNames = ["Investor", "Inverstor", "Invertor"];
-        const existingRole = await Role.findOne({
-          where: { roleName: { [Op.in]: possibleNames }, isActive: true },
-        });
-        if (existingRole) normalizedRoleName = existingRole.roleName;
-      }
-
-      const validClientRoles = [
-        "Owner",
-        "Broker",
-        "Investor",
-        "Inverstor",
-        "Invertor",
-      ];
-      if (!validClientRoles.includes(normalizedRoleName)) {
-        throw createAppError(
-          "Invalid role. Please choose a valid role from the list.",
-          400
-        );
-      }
-
-      const alreadyHasRole = existingUser.roles.some(
-        (r) => r.roleName === normalizedRoleName
-      );
-
-      if (!alreadyHasRole) {
-        // Find the role record
-        const newRoleRecord = await Role.findOne({
-          where: {
-            roleName: normalizedRoleName,
-            roleType: "client",
-            isActive: true,
-          },
-        });
-
-        if (!newRoleRecord) {
-          throw createAppError("Role not found or inactive", 400);
-        }
-
-        await UserRole.create({
-          userId: existingUser.userId,
-          roleId: newRoleRecord.roleId,
-          assignedBy: null,
-        });
-      }
-
-      activeRoleName = roleName;
-    }
-
-    // Generate new refresh token
-    const refreshToken = Token.generateRefreshToken(
-      existingUser.userId,
-      activeRoleName
-    );
-
-    // Update existing token or create new one
     const [updatedCount] = await Token.update(
       {
         refreshToken,
@@ -583,18 +450,11 @@ const login = asyncHandler(async (req, res, next) => {
         isActive: true,
         lastUsedAt: new Date(),
       },
-      {
-        where: {
-          userId: existingUser.userId,
-          isActive: true,
-        },
-      }
+      { where: { userId: existingUser.userId, isActive: true } }
     );
 
-    const lastLoginAt = new Date();
-    await User.update({ lastLoginAt }, { where: { mobileNumber } });
+    await User.update({ lastLoginAt: new Date() }, { where: { mobileNumber } });
 
-    // If no active token found, create new one
     if (updatedCount === 0) {
       await Token.create({
         userId: existingUser.userId,
@@ -607,22 +467,13 @@ const login = asyncHandler(async (req, res, next) => {
       });
     }
 
-    // Generate access token
-    const accessToken = Token.generateAccessToken(
-      existingUser.userId,
-      activeRoleName
-    );
-
-    // Build roles array from existing roles + newly added role (if any)
-    const allRoles = existingUser.roles.map((r) => r.roleName);
-    if (roleName && !allRoles.includes(roleName)) {
-      allRoles.push(roleName);
-    }
+    const accessToken = Token.generateAccessToken(existingUser.userId, primaryRole);
 
     const data = {
       userId: existingUser.userId,
-      role: activeRoleName,
-      roles: allRoles,
+      joinType: existingUser.joinType,
+      isGuest: existingUser.isGuest,
+      roles: roles.map((r) => r.roleName),
       accessToken,
       refreshToken,
       name: `${existingUser.firstName} ${existingUser.lastName}`,
@@ -630,38 +481,32 @@ const login = asyncHandler(async (req, res, next) => {
       mobileNumber: existingUser.mobileNumber,
     };
 
-    // ✅ Log successful API request
     await logRequest(
       req,
       {
         userId: existingUser.userId,
         status: 200,
         body: { success: true, message: "Login successfully" },
-        requestBodyLog: {
-          mobileNumber: "[SUCCESS]", // ✅ Redact on success
-          deviceId: "[REDACTED]",
-        },
+        requestBodyLog: { mobileNumber: "[SUCCESS]", deviceId: "[REDACTED]" },
       },
       requestStartTime
     );
 
     return sendEncodedResponse(res, 200, true, "Login successfully", data);
   } catch (error) {
-    // ✅ Log failed API request (keep mobile for support)
     await logRequest(
       req,
       {
         userId: null,
         status: error.statusCode || 500,
         body: { success: false, message: error.message },
-        requestBodyLog, // ✅ Keep mobile for failure investigation
+        requestBodyLog,
         error: error.message,
         stackTrace: error.stack,
       },
       requestStartTime
     );
 
-    // Pass error to error handler middleware
     return next(error);
   }
 });
@@ -775,7 +620,7 @@ const refreshAccessToken = asyncHandler(async (req, res, next) => {
 
     const user = await User.findOne({
       where: { userId: decoded._id, isActive: true },
-      attributes: ["userId", "firstName", "lastName", "email", "mobileNumber"],
+      attributes: ["userId", "firstName", "lastName", "email", "mobileNumber", "joinType", "isGuest"],
       include: [
         {
           model: Role,
@@ -783,32 +628,20 @@ const refreshAccessToken = asyncHandler(async (req, res, next) => {
           through: { attributes: [] },
           attributes: ["roleId", "roleName", "roleType"],
           where: { isActive: true },
+          required: false, // guest users have no roles
         },
       ],
     });
 
-    // Check if user exists and is active
     if (!user) {
       throw createAppError("User not found or account deactivated", 404);
     }
 
-    // Check if user has active role
-    if (!user.roles || user.roles.length === 0) {
-      throw createAppError("No active role assigned to this account", 403);
-    }
+    const roles = user.roles || [];
+    const primaryRole = roles[0]?.roleName || "guest";
 
-    // Respect the role from JWT if still valid, otherwise fallback
-    const activeRoleName =
-      decoded.role && user.roles.some((r) => r.roleName === decoded.role)
-        ? decoded.role
-        : user.roles[0].roleName;
+    const newAccessToken = Token.generateAccessToken(user.userId, primaryRole);
 
-    const newAccessToken = Token.generateAccessToken(
-      user.userId,
-      activeRoleName
-    );
-
-    // Track when refresh token was last used
     await Token.update(
       { lastUsedAt: new Date() },
       { where: { tokenId: tokenRecord.tokenId } }
@@ -816,8 +649,9 @@ const refreshAccessToken = asyncHandler(async (req, res, next) => {
 
     const data = {
       userId: user.userId,
-      role: activeRoleName,
-      roles: user.roles.map((r) => r.roleName),
+      joinType: user.joinType,
+      isGuest: user.isGuest,
+      roles: roles.map((r) => r.roleName),
       accessToken: newAccessToken,
       name: `${user.firstName} ${user.lastName}`,
       email: user.email,
@@ -867,173 +701,6 @@ const refreshAccessToken = asyncHandler(async (req, res, next) => {
   }
 });
 
-const switchRole = asyncHandler(async (req, res, next) => {
-  const requestStartTime = Date.now();
-  const { roleName } = req.body;
-
-  const requestBodyLog = {
-    userId: req.user?.userId,
-    requestedRole: roleName,
-    currentRole: req.user?.role,
-  };
-
-  try {
-    if (!roleName) {
-      throw createAppError("roleName is required", 400);
-    }
-
-    // Normalize roleName
-    let normalizedRoleName = roleName;
-    if (
-      normalizedRoleName === "Investor" ||
-      normalizedRoleName === "Invertor"
-    ) {
-      const possibleNames = ["Investor", "Inverstor", "Invertor"];
-      const existingRole = await Role.findOne({
-        where: { roleName: { [Op.in]: possibleNames }, isActive: true },
-      });
-      if (existingRole) normalizedRoleName = existingRole.roleName;
-    }
-
-    // Only client roles can be switched
-    const validClientRoles = [
-      "Owner",
-      "Broker",
-      "Investor",
-      "Inverstor",
-      "Invertor",
-    ];
-    if (!validClientRoles.includes(normalizedRoleName)) {
-      throw createAppError(
-        `Only client roles (${validClientRoles.join(", ")}) can be switched`,
-        400
-      );
-    }
-
-    // Check if current user account has the role
-    let targetUser = req.user;
-    let targetRole = req.user.roles.find(
-      (r) => r.roleName === normalizedRoleName
-    );
-
-    // If not found in current account, search for other accounts with same phone number
-    if (!targetRole) {
-      const otherUser = await User.findOne({
-        where: { mobileNumber: req.user.mobileNumber, isActive: true },
-        include: [
-          {
-            model: Role,
-            as: "roles",
-            where: { roleName: normalizedRoleName, isActive: true },
-            required: true,
-          },
-        ],
-      });
-
-      if (otherUser) {
-        targetUser = otherUser;
-        targetRole = otherUser.roles[0];
-      }
-    }
-
-    if (!targetRole) {
-      // Get all available roles for this phone number for a better error message
-      const allAccounts = await User.findAll({
-        where: { mobileNumber: req.user.mobileNumber, isActive: true },
-        include: [{ model: Role, as: "roles", where: { isActive: true } }]
-      });
-      
-      const allAvailableRoles = [...new Set(allAccounts.flatMap(u => u.roles.map(r => r.roleName)))];
-      const switchingAvailableRoles = allAvailableRoles.filter(r => validClientRoles.includes(r));
-
-      throw createAppError(
-        `You do not have the role '${normalizedRoleName}' assigned to this phone number. Available roles: ${switchingAvailableRoles.join(", ")}`,
-        403
-      );
-    }
-
-    if (req.user.role === normalizedRoleName) {
-      throw createAppError(
-        `'${normalizedRoleName}' is already your active role`,
-        400
-      );
-    }
-
-    const newAccessToken = Token.generateAccessToken(
-      targetUser.userId,
-      normalizedRoleName
-    );
-
-    const newRefreshToken = Token.generateRefreshToken(
-      targetUser.userId,
-      normalizedRoleName
-    );
-
-    const [updatedCount] = await Token.update(
-      {
-        refreshToken: newRefreshToken,
-        expiresAt: Token.calculateExpiryDate(process.env.REFRESH_TOKEN_EXPIRY),
-        lastUsedAt: new Date(),
-      },
-      {
-        where: { userId: targetUser.userId, isActive: true },
-      }
-    );
-
-    if (updatedCount === 0) {
-      await Token.create({
-        userId: targetUser.userId,
-        refreshToken: newRefreshToken,
-        expiresAt: Token.calculateExpiryDate(process.env.REFRESH_TOKEN_EXPIRY),
-        userAgent: req.headers["user-agent"] || null,
-        ipAddress: req.ip || null,
-        isActive: true,
-      });
-    }
-
-    const data = {
-      userId: targetUser.userId,
-      previousRole: req.user.role,
-      activeRole: normalizedRoleName,
-      accessToken: newAccessToken,
-      refreshToken: newRefreshToken,
-    };
-
-    await logRequest(
-      req,
-      {
-        userId: req.user.userId,
-        status: 200,
-        body: { success: true, message: "Role switched successfully" },
-        requestBodyLog,
-      },
-      requestStartTime
-    );
-
-    return sendEncodedResponse(
-      res,
-      200,
-      true,
-      "Role switched successfully",
-      data
-    );
-  } catch (error) {
-    await logRequest(
-      req,
-      {
-        userId: req.user?.userId || null,
-        status: error.statusCode || 500,
-        body: { success: false, message: error.message },
-        requestBodyLog,
-        error: error.message,
-        stackTrace: error.stack,
-      },
-      requestStartTime
-    );
-
-    return next(error);
-  }
-});
 
 const getClientUsers = asyncHandler(async (req, res, next) => {
   const requestStartTime = Date.now();
@@ -1235,12 +902,13 @@ const changeMobileNumber = asyncHandler(async (req, res, next) => {
   const requestStartTime = Date.now();
   const { newMobileNumber, otp, verificationId, userId: targetUserId } = req.body;
   let userId = req.user.userId;
-  const currentRole = req.user.role;
+  const userRoleNames = req.user.roles.map((r) => r.roleName);
 
   // Allow Admins/Sales Managers to change another user's mobile number
   if (targetUserId && targetUserId !== req.user.userId) {
     const allowedRoles = ["Admin", "Super Admin", "Sales Manager"];
-    if (!allowedRoles.includes(currentRole)) {
+    const hasAllowedRole = userRoleNames.some((r) => allowedRoles.includes(r));
+    if (!hasAllowedRole) {
       throw createAppError(
         "Only Admin, Super Admin, or Sales Manager can change another user's mobile number",
         403
@@ -1331,19 +999,18 @@ const changeMobileNumber = asyncHandler(async (req, res, next) => {
         { where: { userId, isActive: true }, transaction: t }
       );
 
-      // Create new refresh token for the target user ONLY if they are updating themselves
-      let targetCurrentRole = currentRole;
+      // Determine primary role for the new token
+      let targetPrimaryRole = userRoleNames[0] || "guest";
       if (userId !== req.user.userId) {
-         // fetch their role for the new token
-         const userRoles = await Role.findAll({
-            include: [{ model: User, as: "users", where: { userId }, through: {attributes: []} }]
-         });
-         targetCurrentRole = userRoles.length > 0 ? userRoles[0].roleName : "Owner";
+        const userRoles = await Role.findAll({
+          include: [{ model: User, as: "users", where: { userId }, through: { attributes: [] } }],
+        });
+        targetPrimaryRole = userRoles.length > 0 ? userRoles[0].roleName : "guest";
       }
 
       const newRefreshTokenStr = Token.generateRefreshToken(
         userId,
-        targetCurrentRole
+        targetPrimaryRole
       );
       const newTokenRecord = await Token.create(
         {
@@ -1377,7 +1044,7 @@ const changeMobileNumber = asyncHandler(async (req, res, next) => {
     });
 
     // Generate new access token
-    const newAccessToken = Token.generateAccessToken(userId, currentRole);
+    const newAccessToken = Token.generateAccessToken(userId, userRoleNames[0] || "guest");
 
     const data = {
       userId,
@@ -1422,47 +1089,6 @@ const changeMobileNumber = asyncHandler(async (req, res, next) => {
   }
 });
 
-const getAvailableRoles = asyncHandler(async (req, res, next) => {
-  const requestStartTime = Date.now();
-  const mobileNumber = req.user.mobileNumber;
-
-  try {
-    // Find all active accounts with this mobile number
-    const accounts = await User.findAll({
-      where: { mobileNumber, isActive: true },
-      include: [
-        {
-          model: Role,
-          as: "roles",
-          where: { isActive: true },
-          attributes: ["roleName"],
-          through: { attributes: [] },
-        },
-      ],
-    });
-
-    const validClientRoles = ["Owner", "Broker", "Investor", "Inverstor", "Invertor"];
-    
-    // Extract unique role names that are valid client roles
-    const allRoles = [...new Set(accounts.flatMap(u => u.roles.map(r => r.roleName)))];
-    const availableRoles = allRoles.filter(r => validClientRoles.includes(r));
-
-    await logRequest(
-      req,
-      {
-        userId: req.user.userId,
-        status: 200,
-        body: { success: true, message: "Available roles fetched" },
-      },
-      requestStartTime
-    );
-
-    return sendEncodedResponse(res, 200, true, "Available roles fetched successfully", availableRoles);
-  } catch (error) {
-    return next(error);
-  }
-});
-
 module.exports = {
   sendOtpHandler,
   verifyOtpHandler,
@@ -1470,8 +1096,6 @@ module.exports = {
   login,
   logout,
   refreshAccessToken,
-  switchRole,
   getClientUsers,
   changeMobileNumber,
-  getAvailableRoles,
 };

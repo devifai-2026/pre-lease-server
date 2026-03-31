@@ -38,6 +38,12 @@ const PropertyInquiry = sequelize.define(
     source: {
       type: DataTypes.STRING(50),
     },
+    inquirerRoleType: {
+      type: DataTypes.ENUM("investor", "broker"),
+      allowNull: true,
+      defaultValue: "investor",
+      field: "inquirer_role_type",
+    },
   },
   {
     tableName: "property_inquiries",

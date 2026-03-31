@@ -26,6 +26,11 @@ const UserRole = sequelize.define(
       allowNull: true,
       // Foreign key managed by association in index.js
     },
+    assignedReason: {
+      type: DataTypes.STRING(50),
+      allowNull: true,
+      field: "assigned_reason",
+    },
   },
   {
     tableName: "user_roles",

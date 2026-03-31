@@ -1,4 +1,5 @@
 const { User, Role, BrokerProfile } = require("../models");
+const { autoAssignRole } = require("../utils/roleHelper");
 const asyncHandler = require("../utils/asyncHandler");
 const { sendEncodedResponse } = require("../utils/responseEncoder");
 const createAppError = require("../utils/appError");
@@ -156,6 +157,10 @@ const saveBrokerProfile = asyncHandler(async (req, res, next) => {
   } else {
     profile = await BrokerProfile.create({ userId, ...profileData });
   }
+
+  // Auto-assign Broker role if user doesn't already have it
+  // (covers the case where an investor-joined user later completes a broker profile)
+  await autoAssignRole(userId, "Broker", "broker_profile_completed");
 
   return sendEncodedResponse(
     res,

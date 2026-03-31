@@ -72,6 +72,17 @@ const User = sequelize.define(
       type: DataTypes.DATE,
       allowNull: true,
     },
+    joinType: {
+      type: DataTypes.ENUM("investor", "broker"),
+      allowNull: true, // null for admin users
+      field: "join_type",
+    },
+    isGuest: {
+      type: DataTypes.BOOLEAN,
+      allowNull: false,
+      defaultValue: false,
+      field: "is_guest",
+    },
   },
   {
     tableName: "users",

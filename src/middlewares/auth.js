@@ -39,6 +39,8 @@ const authenticateUser = asyncHandler(async (req, res, next) => {
       "firstName",
       "lastName",
       "userType",
+      "joinType",
+      "isGuest",
     ],
     include: [
       {
@@ -47,19 +49,17 @@ const authenticateUser = asyncHandler(async (req, res, next) => {
         through: { attributes: [] }, // Don't include junction table fields
         attributes: ["roleId", "roleName", "roleType"],
         where: { isActive: true }, // ✅ Only active roles
-        required: true, // User must have at least one active role
+        required: false, // ✅ Guest users have no roles yet — still allowed through
       },
     ],
   });
 
-  // Verify user exists and has active roles
+  // Verify user exists
   if (!user) {
     throw createAppError("User not found or inactive", 401);
   }
 
-  if (!user.roles || user.roles.length === 0) {
-    throw createAppError("No active role assigned to this account", 403);
-  }
+  const roles = user.roles || [];
 
   // ✅ Attach minimal user info to request (no permissions)
   req.user = {
@@ -69,11 +69,10 @@ const authenticateUser = asyncHandler(async (req, res, next) => {
     firstName: user.firstName,
     lastName: user.lastName,
     userType: user.userType,
-    role:
-      decoded.role && user.roles.some((r) => r.roleName === decoded.role)
-        ? decoded.role
-        : user.roles[0].roleName, // Respect JWT role if valid, fallback to first
-    roles: user.roles, // Full roles array for permission checks
+    joinType: user.joinType,
+    isGuest: user.isGuest,
+    role: roles[0]?.roleName || "guest", // Primary role for backward compat
+    roles, // Full roles array (empty for guests)
   };
 
   next();
@@ -272,12 +271,10 @@ const checkRole = (allowedRoles) => {
     );
 
     if (!matchedRole) {
-      return next(
-        createAppError(
-          `Access denied. Required roles: ${allowedRoles.join(" or ")}`,
-          403
-        )
-      );
+      const message = req.user.isGuest
+        ? "Complete your first action to activate your account"
+        : `Access denied. Required roles: ${allowedRoles.join(" or ")}`;
+      return next(createAppError(message, 403));
     }
 
     // Attach the MATCHED role (not blindly roles[0]) so controllers see the right role

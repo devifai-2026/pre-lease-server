@@ -6,12 +6,10 @@ const {
   login,
   logout,
   refreshAccessToken,
-  switchRole,
   sendOtpHandler,
   verifyOtpHandler,
   getClientUsers,
   changeMobileNumber,
-  getAvailableRoles,
 } = require("../controllers/user");
 const { authenticateUser } = require("../middlewares/auth");
 
@@ -81,8 +79,6 @@ userrouter.post("/logout", logout);
  * @header  Authorization: Bearer <refreshToken>
  */
 userrouter.get("/refresh-token", refreshRateLimiter, refreshAccessToken);
-userrouter.get("/available-roles", authenticateUser, getAvailableRoles);
-userrouter.post("/switch-role", authenticateUser, switchRole);
 userrouter.get("/get-client-users", authenticateUser, getClientUsers);
 
 // PATCH /api/users/change-mobile

@@ -3,10 +3,12 @@ const {
   PropertyInquiry,
   User,
   Role,
+  BrokerProfile,
   SalesRelationship,
   PropertyNotificationEvent,
   PropertyMedia,
 } = require("../models");
+const { autoAssignRole, clearGuestFlag } = require("../utils/roleHelper");
 const createAppError = require("../utils/appError");
 const asyncHandler = require("../utils/asyncHandler");
 const { sendEncodedResponse } = require("../utils/responseEncoder");
@@ -22,13 +24,14 @@ const { Op } = require("sequelize");
 const createPropertyInquiry = asyncHandler(async (req, res, next) => {
   const requestStartTime = Date.now();
   const { propertyId } = req.params;
-  const { inquiry, source, priority } = req.body;
+  const { inquiry, source, priority, inquirerRoleType = "investor" } = req.body;
   const inquirerId = req.user.userId;
 
   const requestBodyLog = {
     propertyId,
     inquirerId,
     source,
+    inquirerRoleType,
   };
 
   try {
@@ -41,6 +44,28 @@ const createPropertyInquiry = asyncHandler(async (req, res, next) => {
     }
     if (!inquirerId) {
       throw createAppError("inquirerId is required", 400);
+    }
+
+    if (!["investor", "broker"].includes(inquirerRoleType)) {
+      throw createAppError('inquirerRoleType must be "investor" or "broker"', 400);
+    }
+
+    // ── Broker check: must have Broker role AND broker profile ────────────────
+    if (inquirerRoleType === "broker") {
+      const hasBrokerRole = req.user.roles.some((r) => r.roleName === "Broker");
+      if (!hasBrokerRole) {
+        throw createAppError(
+          "You must have a broker profile to submit an inquiry as a broker",
+          403
+        );
+      }
+      const brokerProfile = await BrokerProfile.findOne({ where: { userId: inquirerId } });
+      if (!brokerProfile) {
+        throw createAppError(
+          "Complete your broker profile before submitting an inquiry as a broker",
+          403
+        );
+      }
     }
 
     // Verify property exists
@@ -56,6 +81,14 @@ const createPropertyInquiry = asyncHandler(async (req, res, next) => {
     try {
       let autoAssignedTo = null;
 
+      // ── Auto-assign Investor role if acting as investor ───────────────────
+      if (inquirerRoleType === "investor") {
+        await autoAssignRole(inquirerId, "Investor", "first_inquiry", transaction);
+        if (req.user.isGuest) {
+          await clearGuestFlag(inquirerId, transaction);
+        }
+      }
+
       // Always create a new row
       const inquiryRecord = await PropertyInquiry.create(
         {
@@ -64,6 +97,7 @@ const createPropertyInquiry = asyncHandler(async (req, res, next) => {
           inquiry: inquiry.trim(),
           source: source || "direct",
           priority: priority || "medium",
+          inquirerRoleType,
         },
         { transaction }
       );

@@ -6,6 +6,7 @@ const {
   User,
   Role,
   UserRole,
+  BrokerProfile,
   PropertyCertification,
   PropertyConnectivity,
   SalesRelationship,
@@ -16,6 +17,7 @@ const {
 const { sequelize } = require("../config/dbConnection");
 const createAppError = require("../utils/appError");
 const { validateRequiredFields } = require("../utils/validators");
+const { autoAssignRole } = require("../utils/roleHelper");
 const asyncHandler = require("../utils/asyncHandler");
 const {
   logRequest,
@@ -241,6 +243,7 @@ const createProperty = asyncHandler(async (req, res, next) => {
     caretakerId,
     connectivityDetails,
     certifications,
+    createdAs = "owner", // "owner" or "broker"
   } = req.body;
 
   const requestBodyLog = {
@@ -286,24 +289,29 @@ const createProperty = asyncHandler(async (req, res, next) => {
       );
     }
 
-    const userWithRole = await User.findOne({
-      where: { userId: req.user.userId, isActive: true },
-      include: [
-        {
-          model: Role,
-          as: "roles",
-          through: { attributes: [] },
-          attributes: ["roleId", "roleName"],
-          where: { isActive: true },
-        },
-      ],
-    });
-
-    if (!userWithRole) {
-      throw createAppError("User not found or inactive", 404);
+    if (!["owner", "broker"].includes(createdAs)) {
+      throw createAppError('createdAs must be "owner" or "broker"', 400);
     }
 
-    const userRole = userWithRole.roles[0].roleName;
+    // ── Broker check: must have Broker role AND broker profile ────────────────
+    if (createdAs === "broker") {
+      const hasBrokerRole = req.user.roles.some((r) => r.roleName === "Broker");
+      if (!hasBrokerRole) {
+        throw createAppError(
+          "You must have a broker profile to list a property as a broker",
+          403
+        );
+      }
+      const brokerProfile = await BrokerProfile.findOne({
+        where: { userId: req.user.userId },
+      });
+      if (!brokerProfile) {
+        throw createAppError(
+          "Complete your broker profile before listing a property as a broker",
+          403
+        );
+      }
+    }
 
     if (caretakerId) {
       const caretaker = await Caretaker.findOne({
@@ -454,12 +462,15 @@ const createProperty = asyncHandler(async (req, res, next) => {
         isActive: true,
       };
 
-      if (userRole === "Owner") {
-        propertyData.ownerId = req.user.userId;
-        propertyData.brokerId = null;
-      } else if (userRole === "Broker") {
+      // ── Auto-assign Owner role (always, regardless of createdAs) ─────────
+      await autoAssignRole(req.user.userId, "Owner", "property_created", t);
+
+      if (createdAs === "broker") {
         propertyData.brokerId = req.user.userId;
         propertyData.ownerId = null;
+      } else {
+        propertyData.ownerId = req.user.userId;
+        propertyData.brokerId = null;
       }
 
       if (assignedSalesId) {
