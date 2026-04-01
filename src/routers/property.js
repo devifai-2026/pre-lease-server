@@ -45,7 +45,8 @@ const { multerUpload, uploadToCloudinary: uploadToGCS } = require("../middleware
 router.post(
   "/properties",
   authenticateUser,
-  checkPermission("PROPERTY_CREATE"),
+  // Removed strict checkPermission("PROPERTY_CREATE") to allow self-service listing
+  // (controller handles Broker check and assigns Owner role upon success)
   multerUpload.array("files", 10),
   uploadToGCS,
   createProperty
