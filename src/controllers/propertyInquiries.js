@@ -1034,14 +1034,19 @@ const getAssignedInquiries = asyncHandler(async (req, res) => {
 
 const getMyInquiries = asyncHandler(async (req, res, next) => {
   const inquirerId = req.user.userId;
-  const { page = 1, limit = 10 } = req.query;
+  const { page = 1, limit = 10, inquirerRoleType } = req.query;
 
   const pageNumber = parseInt(page);
   const pageSize = parseInt(limit);
   const offset = (pageNumber - 1) * pageSize;
 
+  const whereClause = {
+    inquirerId,
+    ...(inquirerRoleType && { inquirerRoleType }),
+  };
+
   const { count, rows: inquiries } = await PropertyInquiry.findAndCountAll({
-    where: { inquirerId },
+    where: whereClause,
     include: [
       {
         model: Property,
