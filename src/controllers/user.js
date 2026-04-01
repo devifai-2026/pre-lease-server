@@ -707,7 +707,7 @@ const refreshAccessToken = asyncHandler(async (req, res, next) => {
         requestBodyLog: {
           ...requestBodyLog,
           userId: user.userId,
-          role: activeRoleName,
+          role: primaryRole,
         },
       },
       requestStartTime
