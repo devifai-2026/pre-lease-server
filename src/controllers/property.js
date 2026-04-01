@@ -827,10 +827,11 @@ const updateProperty = asyncHandler(async (req, res, next) => {
       isActive: true,
     };
 
-    if (userRole === "Owner") {
-      whereCondition.ownerId = req.user.userId;
-    } else if (userRole === "Broker") {
-      whereCondition.brokerId = req.user.userId;
+    if (userRole !== "Admin" && userRole !== "Super Admin") {
+      whereCondition[Op.or] = [
+        { ownerId: req.user.userId },
+        { brokerId: req.user.userId },
+      ];
     }
 
     const existingProperty = await Property.findOne({
