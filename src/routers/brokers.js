@@ -1,6 +1,6 @@
 const express = require("express");
 const router = express.Router();
-const { getBrokers, saveBrokerProfile, getBrokerProfile } = require("../controllers/brokers");
+const { getBrokers, saveBrokerProfile, getBrokerProfile, getBrokerStats } = require("../controllers/brokers");
 const { authenticateUser, checkBroker } = require("../middlewares/auth");
 const { multerUpload } = require("../middlewares/uploadCloudinary");
 
@@ -30,5 +30,6 @@ router.post(
  * @access  Private (Broker only)
  */
 router.get("/brokers/profile", authenticateUser, checkBroker, getBrokerProfile);
+router.get("/brokers/stats", authenticateUser, checkBroker, getBrokerStats);
 
 module.exports = router;

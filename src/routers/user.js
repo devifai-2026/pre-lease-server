@@ -10,6 +10,7 @@ const {
   verifyOtpHandler,
   getClientUsers,
   changeMobileNumber,
+  getAvailableRoles,
 } = require("../controllers/user");
 const { authenticateUser } = require("../middlewares/auth");
 
@@ -80,6 +81,7 @@ userrouter.post("/logout", logout);
  */
 userrouter.get("/refresh-token", refreshRateLimiter, refreshAccessToken);
 userrouter.get("/get-client-users", authenticateUser, getClientUsers);
+userrouter.get("/available-roles", authenticateUser, getAvailableRoles);
 
 // PATCH /api/users/change-mobile
 userrouter.patch("/change-mobile", authenticateUser, changeMobileNumber);

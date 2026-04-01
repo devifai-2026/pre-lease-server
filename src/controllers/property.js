@@ -246,6 +246,8 @@ const createProperty = asyncHandler(async (req, res, next) => {
     createdAs = "owner", // "owner" or "broker"
   } = req.body;
 
+  const userRole = req.userRole; // From checkPermission middleware
+
   const requestBodyLog = {
     propertyType,
     carpetAreaSqft,

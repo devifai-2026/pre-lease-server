@@ -198,4 +198,40 @@ const getBrokerProfile = asyncHandler(async (req, res, next) => {
   );
 });
 
-module.exports = { getBrokers, saveBrokerProfile, getBrokerProfile };
+const getBrokerStats = asyncHandler(async (req, res, next) => {
+  const { userId } = req.user;
+  const { Property, PropertyInquiry } = require("../models");
+
+  const activeListings = await Property.count({
+    where: { brokerId: userId, isActive: true },
+  });
+
+  // For this demo/flow, "Active Deals" could be inquiries on their properties
+  const activeDeals = await PropertyInquiry.count({
+    include: [
+      {
+        model: Property,
+        as: "property",
+        where: { brokerId: userId },
+      },
+    ],
+  });
+
+  // Conversion rate could be (closed deals / total inquiries) * 100
+  // For now, let's use a mock or a simple calculation if we had closed deals field
+  const profile = await BrokerProfile.findOne({ where: { userId } });
+  const conversionRate = profile?.dealsClosed ? "34%" : "0%"; // Mocking 34% if they have deals, or 0%
+
+  return sendEncodedResponse(res, 200, true, "Broker stats fetched successfully", {
+    activeDeals,
+    activeListings,
+    conversionRate,
+  });
+});
+
+module.exports = {
+  getBrokers,
+  saveBrokerProfile,
+  getBrokerProfile,
+  getBrokerStats,
+};

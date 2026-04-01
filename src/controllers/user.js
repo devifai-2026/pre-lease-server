@@ -150,31 +150,50 @@ const signup = asyncHandler(async (req, res, next) => {
       await otpService.verifyOtp(verificationId, otp);
     }
 
-    // ── Check for duplicate email / reraNumber ────────────────────────────────
-    const whereConditions = [{ email }];
-    if (reraNumber) whereConditions.push({ reraNumber });
-
-    const existingUser = await User.findOne({
-      where: { [Op.or]: whereConditions },
+    // ── Check for duplicate email / reraNumber across other users ──────────────
+    const conflictUser = await User.findOne({
+      where: {
+        [Op.or]: [
+          { email },
+          { reraNumber: reraNumber || "__none__" }, // dummy to avoid null match
+        ],
+        mobileNumber: { [Op.ne]: mobileNumber }, // Exclude current user if any
+      },
       attributes: ["email", "reraNumber"],
     });
 
-    if (existingUser) {
-      if (existingUser.email === email) {
+    if (conflictUser) {
+      if (conflictUser.email === email) {
         throw createAppError("Email already exists", 409);
       }
-      if (reraNumber && existingUser.reraNumber === reraNumber) {
+      if (reraNumber && conflictUser.reraNumber === reraNumber) {
         throw createAppError("RERA number already exists", 409);
       }
     }
 
-    // ── Check duplicate mobile ────────────────────────────────────────────────
-    const existingMobile = await User.findOne({
+    // ── Check existing mobile ────────────────────────────────────────────────
+    let existingUser = await User.findOne({
       where: { mobileNumber },
-      attributes: ["userId"],
+      include: [
+        {
+          model: Role,
+          as: "roles",
+          through: { attributes: [] },
+          attributes: ["roleName"],
+        },
+      ],
     });
-    if (existingMobile) {
-      throw createAppError("An account with this mobile number already exists", 409);
+
+    if (existingUser) {
+      const roleNames = (existingUser.roles || []).map((r) => r.roleName);
+      if (joinType === "broker" && roleNames.includes("Broker")) {
+        throw createAppError("An account with this mobile number already exists as a broker", 409);
+      }
+      if (joinType === "investor" && (roleNames.includes("Investor") || existingUser.isGuest)) {
+        throw createAppError("An account with this mobile number already exists as an investor", 409);
+      }
+      // If we are here, user exists but is missing the role they are signing up for.
+      // This is "allowed" as per user request (e.g. Investor signing up as Broker).
     }
 
     // ── Parse specializations for broker ──────────────────────────────────────
@@ -194,21 +213,39 @@ const signup = asyncHandler(async (req, res, next) => {
 
     // ── Transaction ───────────────────────────────────────────────────────────
     const result = await sequelize.transaction(async (t) => {
-      const createUser = await User.create(
-        {
-          firstName,
-          lastName,
-          email,
-          mobileNumber,
-          userType: "client",
-          isActive: true,
-          isVerified: joinType === "broker" ? false : true,
-          reraNumber: reraNumber || null,
-          joinType,
-          isGuest: joinType === "investor", // investor starts as guest; broker gets role immediately
-        },
-        { transaction: t }
-      );
+      let targetUser;
+
+      if (existingUser) {
+        // Upgrade existing user
+        targetUser = existingUser;
+        targetUser.firstName = firstName || targetUser.firstName;
+        targetUser.lastName = lastName || targetUser.lastName;
+        targetUser.email = email || targetUser.email;
+        if (joinType === "broker") {
+          targetUser.isVerified = false; // Broker needs verification
+          targetUser.reraNumber = reraNumber || targetUser.reraNumber;
+          targetUser.joinType = "broker"; // Primary joinType becomes broker
+          targetUser.isGuest = false;
+        }
+        await targetUser.save({ transaction: t });
+      } else {
+        // Create new user
+        targetUser = await User.create(
+          {
+            firstName,
+            lastName,
+            email,
+            mobileNumber,
+            userType: "client",
+            isActive: true,
+            isVerified: joinType === "broker" ? false : true,
+            reraNumber: reraNumber || null,
+            joinType,
+            isGuest: joinType === "investor",
+          },
+          { transaction: t }
+        );
+      }
 
       let assignedRole = null;
 
@@ -221,7 +258,7 @@ const signup = asyncHandler(async (req, res, next) => {
 
         await UserRole.create(
           {
-            userId: createUser.userId,
+            userId: targetUser.userId,
             roleId: brokerRole.roleId,
             assignedBy: null,
             assignedReason: "signup",
@@ -232,7 +269,7 @@ const signup = asyncHandler(async (req, res, next) => {
         // Create broker profile
         await BrokerProfile.create(
           {
-            userId: createUser.userId,
+            userId: targetUser.userId,
             companyName: companyName || null,
             locality: String(locality).trim(),
             specializations,
@@ -246,13 +283,13 @@ const signup = asyncHandler(async (req, res, next) => {
       // investor: no role assigned yet, isGuest = true
 
       const refreshTokenStr = Token.generateRefreshToken(
-        createUser.userId,
+        targetUser.userId,
         assignedRole || "guest"
       );
 
       const tokenRecord = await Token.create(
         {
-          userId: createUser.userId,
+          userId: targetUser.userId,
           refreshToken: refreshTokenStr,
           expiresAt: Token.calculateExpiryDate(process.env.REFRESH_TOKEN_EXPIRY),
           deviceId: req.body.deviceId || null,
@@ -264,7 +301,7 @@ const signup = asyncHandler(async (req, res, next) => {
       );
 
       return {
-        user: createUser,
+        user: targetUser,
         roleName: assignedRole,
         refreshToken: tokenRecord.refreshToken,
       };
@@ -1089,6 +1126,73 @@ const changeMobileNumber = asyncHandler(async (req, res, next) => {
   }
 });
 
+/**
+ * @route   GET /api/v1/auth/available-roles
+ * @desc    Fetch status of all client-facing roles for the current user
+ * @access  Private
+ */
+const getAvailableRoles = asyncHandler(async (req, res, next) => {
+  const requestStartTime = Date.now();
+  const userId = req.user.userId;
+
+  try {
+    const roles = await Role.findAll({
+      where: {
+        roleName: ["Broker", "Investor", "Owner"],
+        isActive: true,
+      },
+      attributes: ["roleId", "roleName"],
+      include: [
+        {
+          model: User,
+          as: "users",
+          where: { userId },
+          through: { attributes: ["assignedAt", "assignedReason"] },
+          required: false,
+        },
+      ],
+    });
+
+    // Ensure we return all 3 roles even if user has none of them
+    const roleNames = ["Broker", "Investor", "Owner"];
+    const formattedRoles = roleNames.map((name) => {
+      const dbRole = roles.find((r) => r.roleName === name);
+      const userAssigned = dbRole && dbRole.users && dbRole.users.length > 0;
+      return {
+        roleName: name,
+        isAcquired: userAssigned,
+        assignedAt: userAssigned ? dbRole.users[0].UserRole.assignedAt : null,
+        assignedReason: userAssigned
+          ? dbRole.users[0].UserRole.assignedReason
+          : null,
+      };
+    });
+
+    await logRequest(
+      req,
+      {
+        userId,
+        status: 200,
+        body: {
+          success: true,
+          message: "Available roles fetched successfully",
+        },
+      },
+      requestStartTime
+    );
+
+    return sendEncodedResponse(
+      res,
+      200,
+      true,
+      "Available roles fetched successfully",
+      formattedRoles
+    );
+  } catch (error) {
+    return next(error);
+  }
+});
+
 module.exports = {
   sendOtpHandler,
   verifyOtpHandler,
@@ -1098,4 +1202,5 @@ module.exports = {
   refreshAccessToken,
   getClientUsers,
   changeMobileNumber,
+  getAvailableRoles,
 };
