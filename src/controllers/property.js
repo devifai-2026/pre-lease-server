@@ -1585,6 +1585,8 @@ const getAllProperties = asyncHandler(async (req, res, next) => {
     brokerId,
     salesId,
     addedBy,
+    fromDate,
+    toDate,
   } = req.query;
 
   const requestBodyLog = {
@@ -1688,6 +1690,12 @@ const getAllProperties = asyncHandler(async (req, res, next) => {
 
     if (isVerified) {
       whereClause.isVerified = buildIsVerifiedClause(isVerified);
+    }
+
+    if (fromDate || toDate) {
+      whereClause.createdAt = {};
+      if (fromDate) whereClause.createdAt[Op.gte] = new Date(fromDate);
+      if (toDate) whereClause.createdAt[Op.lte] = new Date(toDate);
     }
 
     if (ownerId) whereClause.ownerId = ownerId;
