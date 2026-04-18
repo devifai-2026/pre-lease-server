@@ -29,6 +29,7 @@ const { Op } = require("sequelize");
 const { sendEncodedResponse } = require("../utils/responseEncoder");
 const { attachSignedUrls } = require("../utils/gcsHelper");
 const { getIO } = require("../config/socket");
+const { computeStoredMetrics, computePLGMetrics } = require("../utils/plgCalculator");
 
 const FIELD_LABELS = {
   propertyType: "Property Type",
@@ -452,15 +453,17 @@ const createProperty = asyncHandler(async (req, res, next) => {
         propertyTaxAnnual: propertyTaxAnnual || null,
         insuranceAnnual: insuranceAnnual || null,
         otherCostsAnnual: otherCostsAnnual || null,
-        totalOperatingAnnualCosts:
-          parseFloat(propertyTaxAnnual || 0) +
-            parseFloat(insuranceAnnual || 0) +
-            parseFloat(otherCostsAnnual || 0) || null,
         additionalIncomeAnnual: additionalIncomeAnnual || null,
-        annualGrossRent: annualGrossRent || null,
-        grossRentalYield: grossRentalYield || null,
-        netRentalYield: netRentalYield || null,
-        paybackPeriodYears: paybackPeriodYears || null,
+        ...computeStoredMetrics({
+          sellingPrice,
+          rentType: rentType || "Lump Sum",
+          rentPerSqftMonthly,
+          totalMonthlyRent,
+          carpetArea: carpetAreaSqft,
+          propertyTaxAnnual,
+          insuranceAnnual,
+          otherCostsAnnual,
+        }),
         isActive: true,
       };
 
@@ -928,6 +931,25 @@ const updateProperty = asyncHandler(async (req, res, next) => {
       !amenityIds
     ) {
       throw createAppError("No fields to update", 400);
+    }
+
+    const financialTriggerFields = [
+      "sellingPrice", "rentType", "rentPerSqftMonthly", "totalMonthlyRent",
+      "carpetArea", "propertyTaxAnnual", "insuranceAnnual", "otherCostsAnnual",
+    ];
+    if (financialTriggerFields.some((f) => updateData[f] !== undefined)) {
+      const merged = { ...oldRecord, ...updateData };
+      const computed = computeStoredMetrics({
+        sellingPrice: merged.sellingPrice,
+        rentType: merged.rentType,
+        rentPerSqftMonthly: merged.rentPerSqftMonthly,
+        totalMonthlyRent: merged.totalMonthlyRent,
+        carpetArea: merged.carpetArea,
+        propertyTaxAnnual: merged.propertyTaxAnnual,
+        insuranceAnnual: merged.insuranceAnnual,
+        otherCostsAnnual: merged.otherCostsAnnual,
+      });
+      Object.assign(updateData, computed);
     }
 
     const result = await sequelize.transaction(async (t) => {
@@ -1510,6 +1532,7 @@ const compareProperties = asyncHandler(async (req, res, next) => {
         caretaker: property.caretaker || null,
         description: property.description,
         additionalDescription: property.additionalDescription,
+        plgMetrics: computePLGMetrics(property),
       }))
     );
 
@@ -1869,6 +1892,8 @@ const getAllProperties = asyncHandler(async (req, res, next) => {
           role: log.roleAtVerification || null,
           verifiedAt: log.createdAt,
         }));
+
+        propertyData.plgMetrics = computePLGMetrics(propertyData);
 
         return propertyData;
       })
@@ -2241,6 +2266,8 @@ const getAssignedProperties = asyncHandler(async (req, res, next) => {
           verifiedAt: log.createdAt,
         }));
 
+        propertyData.plgMetrics = computePLGMetrics(propertyData);
+
         return propertyData;
       })
     );
@@ -2444,6 +2471,9 @@ const getPropertyById = asyncHandler(async (req, res, next) => {
     } else {
       propertyData.tenureLeftYears = null;
     }
+
+    propertyData.plgMetrics = computePLGMetrics(propertyData);
+
     await logRequest(
       req,
       {
@@ -2608,6 +2638,8 @@ const getHotProperties = asyncHandler(async (req, res, next) => {
           role: log.roleAtVerification || null,
           verifiedAt: log.createdAt,
         }));
+
+        propJson.plgMetrics = computePLGMetrics(propJson);
 
         return propJson;
       })
