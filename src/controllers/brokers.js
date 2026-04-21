@@ -229,9 +229,50 @@ const getBrokerStats = asyncHandler(async (req, res, next) => {
   });
 });
 
+const contactBroker = asyncHandler(async (req, res, next) => {
+  const { brokerId } = req.params;
+  const { fullName, email, phoneNumber, propertyType, budgetRange, timeline, additionalNotes } = req.body;
+
+  if (!fullName || !email || !phoneNumber || !propertyType || !budgetRange || !timeline) {
+    throw createAppError("fullName, email, phoneNumber, propertyType, budgetRange, and timeline are required", 400);
+  }
+
+  const broker = await User.findOne({
+    where: { userId: brokerId, isActive: true, deletedAt: null },
+    include: [
+      {
+        model: Role,
+        as: "roles",
+        where: { roleName: "Broker", isActive: true },
+        through: { attributes: [] },
+      },
+    ],
+  });
+
+  if (!broker) {
+    throw createAppError("Broker not found", 404);
+  }
+
+  return res.status(200).json({
+    success: true,
+    message: "Your enquiry has been sent to the broker successfully. They will reach out to you shortly.",
+    data: {
+      brokerId,
+      fullName,
+      email,
+      phoneNumber,
+      propertyType,
+      budgetRange,
+      timeline,
+      additionalNotes: additionalNotes || null,
+    },
+  });
+});
+
 module.exports = {
   getBrokers,
   saveBrokerProfile,
   getBrokerProfile,
   getBrokerStats,
+  contactBroker,
 };
