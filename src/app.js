@@ -58,7 +58,11 @@ const app = express();
 })();
 
 const NODE_ENV = process.env.NODE_ENV || "development";
-app.use(helmet());
+app.use(
+  helmet({
+    crossOriginResourcePolicy: { policy: "cross-origin" },
+  })
+);
 app.use(
   cors({
     origin: [
@@ -66,8 +70,8 @@ app.use(
       /^http:\/\/127\.0\.0\.1(:\d+)?$/,
       "https://starlit-parfait-041a93.netlify.app",
       "https://prelease-admin-qa.netlify.app",
-      "https://p-grid-admin.vercel.app",
-      "https://p-grid-client.vercel.app",
+      /^https:\/\/p-grid-admin(-.*)?\.vercel\.app$/,
+      /^https:\/\/p-grid-client(-.*)?\.vercel\.app$/,
       process.env.CORS_ORIGIN,
     ].filter(Boolean),
     credentials: true,
