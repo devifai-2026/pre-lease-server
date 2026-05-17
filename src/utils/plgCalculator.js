@@ -148,12 +148,13 @@ const computeStoredMetrics = (fields) => {
 
   const annualGrossRent = monthlyRent * 12;
   const annualNOI = annualGrossRent - (tax + insurance + otherCosts);
+  const clamp = (val) => Math.max(-999.99, Math.min(val, 999.99));
 
   return {
     annualGrossRent: round2(annualGrossRent),
-    grossRentalYield: round2((annualGrossRent / purchasePrice) * 100),
-    netRentalYield: round2((annualNOI / purchasePrice) * 100),
-    paybackPeriodYears: round2(purchasePrice / annualGrossRent),
+    grossRentalYield: round2(clamp((annualGrossRent / purchasePrice) * 100)),
+    netRentalYield: round2(clamp((annualNOI / purchasePrice) * 100)),
+    paybackPeriodYears: round2(clamp(purchasePrice / annualGrossRent)),
     totalOperatingAnnualCosts: round2(tax + insurance + otherCosts) || null,
   };
 };

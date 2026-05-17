@@ -109,13 +109,16 @@ const buildIsVerifiedClause = (isVerified) => {
 const ALLOWED_UPDATE_FIELDS = [
   "propertyType",
   "carpetAreaSqft",
+  "carpetArea",
   "carpetAreaUnit",
   "completionYear",
   "lastRefurbished",
   "ownershipType",
   "buildingGrade",
   "parkingSlots",
+  "parkingFourWheeler",
   "parkingRatio",
+  "parkingTwoWheeler",
   "powerBackupKva",
   "numberOfLifts",
   "hvacType",
@@ -197,6 +200,9 @@ const createProperty = asyncHandler(async (req, res, next) => {
     buildingGrade,
     parkingSlots,
     parkingRatio,
+    carpetArea,
+    parkingFourWheeler,
+    parkingTwoWheeler,
     powerBackupKva,
     numberOfLifts,
     hvacType,
@@ -405,14 +411,14 @@ const createProperty = asyncHandler(async (req, res, next) => {
     const result = await sequelize.transaction(async (t) => {
       const propertyData = {
         propertyType: propertyType || null,
-        carpetArea: carpetAreaSqft || null,
+        carpetArea: carpetAreaSqft || carpetArea || null,
         carpetAreaUnit: carpetAreaUnit || "Sq. Feet",
         completionYear: completionYear || null,
         lastRefurbishedYear: lastRefurbished || null,
         ownershipType: ownershipType || null,
         buildingGrade: buildingGrade || null,
-        parkingFourWheeler: parkingSlots || 0,
-        parkingTwoWheeler: parkingRatio || 0,
+        parkingFourWheeler: parkingSlots !== undefined ? parkingSlots : (parkingFourWheeler || 0),
+        parkingTwoWheeler: parkingRatio !== undefined ? parkingRatio : (parkingTwoWheeler || 0),
         powerBackup: powerBackupKva || null,
         numberOfLifts: numberOfLifts || null,
         hvacType: hvacType || null,
@@ -459,7 +465,7 @@ const createProperty = asyncHandler(async (req, res, next) => {
           rentType: rentType || "Lump Sum",
           rentPerSqftMonthly,
           totalMonthlyRent,
-          carpetArea: carpetAreaSqft,
+          carpetArea: carpetAreaSqft || carpetArea,
           propertyTaxAnnual,
           insuranceAnnual,
           otherCostsAnnual,
@@ -859,16 +865,16 @@ const updateProperty = asyncHandler(async (req, res, next) => {
     }
 
     // Map payload fields to model fields if they differ
-    if (req.body.carpetAreaSqft !== undefined) {
-      updateData.carpetArea = req.body.carpetAreaSqft;
+    if (req.body.carpetAreaSqft !== undefined || req.body.carpetArea !== undefined) {
+      updateData.carpetArea = req.body.carpetAreaSqft !== undefined ? req.body.carpetAreaSqft : req.body.carpetArea;
       delete updateData.carpetAreaSqft;
     }
-    if (req.body.parkingSlots !== undefined) {
-      updateData.parkingFourWheeler = req.body.parkingSlots;
+    if (req.body.parkingSlots !== undefined || req.body.parkingFourWheeler !== undefined) {
+      updateData.parkingFourWheeler = req.body.parkingSlots !== undefined ? req.body.parkingSlots : req.body.parkingFourWheeler;
       delete updateData.parkingSlots;
     }
-    if (req.body.parkingRatio !== undefined) {
-      updateData.parkingTwoWheeler = req.body.parkingRatio;
+    if (req.body.parkingRatio !== undefined || req.body.parkingTwoWheeler !== undefined) {
+      updateData.parkingTwoWheeler = req.body.parkingRatio !== undefined ? req.body.parkingRatio : req.body.parkingTwoWheeler;
       delete updateData.parkingRatio;
     }
     if (req.body.lastRefurbished !== undefined) {
