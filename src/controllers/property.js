@@ -1607,6 +1607,7 @@ const getAllProperties = asyncHandler(async (req, res, next) => {
     microMarket,
     amenityIds,
     bedrooms,
+    proximity,
     sortBy = "createdAt",
     sortOrder = "DESC",
     isVerified,
@@ -1629,6 +1630,7 @@ const getAllProperties = asyncHandler(async (req, res, next) => {
       tenure: { minTenure, maxTenure },
       location: { city, state, microMarket },
       userRels: { ownerId, brokerId, salesId, addedBy },
+      proximity,
     },
     sortBy,
     sortOrder,
@@ -1814,6 +1816,15 @@ const getAllProperties = asyncHandler(async (req, res, next) => {
           separate: true,
         },
         {
+          model: PropertyConnectivity,
+          as: "connectivity",
+          attributes: ["connectivityId", "connectivityType", "name", "distanceKm"],
+          where: proximity
+            ? { connectivityType: { [Op.in]: proximity.split(",") } }
+            : undefined,
+          required: proximity ? true : false,
+        },
+        {
           model: Caretaker,
           as: "caretaker",
           attributes: ["caretakerId", "caretakerName"],
@@ -1990,6 +2001,7 @@ const getAssignedProperties = asyncHandler(async (req, res, next) => {
     city,
     state,
     microMarket,
+    proximity,
     sortBy = "createdAt",
     sortOrder = "DESC",
     isVerified,
@@ -2007,6 +2019,7 @@ const getAssignedProperties = asyncHandler(async (req, res, next) => {
       roi: { minROI, maxROI },
       tenure: { minTenure, maxTenure },
       location: { city, state, microMarket },
+      proximity,
     },
     sortBy,
     sortOrder,
@@ -2185,6 +2198,15 @@ const getAssignedProperties = asyncHandler(async (req, res, next) => {
           attributes: ["mediaId", "mediaType", "fileUrl"],
           required: false,
           separate: true,
+        },
+        {
+          model: PropertyConnectivity,
+          as: "connectivity",
+          attributes: ["connectivityId", "connectivityType", "name", "distanceKm"],
+          where: proximity
+            ? { connectivityType: { [Op.in]: proximity.split(",") } }
+            : undefined,
+          required: proximity ? true : false,
         },
         {
           model: Caretaker,
