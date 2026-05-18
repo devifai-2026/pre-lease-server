@@ -2712,7 +2712,7 @@ const getHotProperties = asyncHandler(async (req, res, next) => {
 const getPropertyCounts = asyncHandler(async (req, res, next) => {
   try {
     const counts = await Property.findAll({
-      where: { isActive: true },
+      where: { isActive: true, isVerified: "completed" },
       attributes: [
         "propertyType",
         [sequelize.fn("COUNT", sequelize.col("property_id")), "count"],
