@@ -4,7 +4,9 @@ const { autoAssignRole } = require("../utils/roleHelper");
 const {
   isValidEmail,
   isValidPhone,
+  isValidReraNumber,
   validateRequiredFields,
+  getPagination,
 } = require("../utils/validators");
 const createAppError = require("../utils/appError");
 const asyncHandler = require("../utils/asyncHandler");
@@ -12,6 +14,12 @@ const { logRequest, logUpdate } = require("../utils/logs");
 const { sequelize } = require("../config/dbConnection");
 const { sendEncodedResponse } = require("../utils/responseEncoder");
 const otpService = require("../services/otpService");
+
+// Dummy OTP bypass is allowed ONLY in development. In staging/production the real
+// OTP service must verify. Set NODE_ENV=development locally to use DUMMY_OTP.
+const isDevelopment = process.env.NODE_ENV === "development";
+const DUMMY_OTP = "111111";
+const isDummyOtpAllowed = (otp) => isDevelopment && otp === DUMMY_OTP;
 
 // ============================================
 // SEND OTP
@@ -35,9 +43,11 @@ const sendOtpHandler = asyncHandler(async (req, res, next) => {
         400
       );
     }
-    // TODO: Remove this after testing
-    // const result = await otpService.sendOtp(mobileNumber);
-    const result = { verificationId: "dummy_id", timeout: "60.0" };
+    // In development we skip the real SMS send and return a dummy verificationId so
+    // the DUMMY_OTP can be used. In staging/production a real OTP is sent.
+    const result = isDevelopment
+      ? { verificationId: "dummy_id", timeout: "60.0" }
+      : await otpService.sendOtp(mobileNumber);
 
     await logRequest(
       req,
@@ -143,10 +153,17 @@ const signup = asyncHandler(async (req, res, next) => {
           400
         );
       }
+      // Validate RERA format (validator existed but was never called).
+      if (!isValidReraNumber(reraNumber)) {
+        throw createAppError(
+          "Invalid RERA number. Expected format: XXRERA/<alphanumeric> (e.g. MHRERA/A1234)",
+          400
+        );
+      }
     }
 
     // ── Verify OTP ────────────────────────────────────────────────────────────
-    if (otp !== "111111") {
+    if (!isDummyOtpAllowed(otp)) {
       await otpService.verifyOtp(verificationId, otp);
     }
 
@@ -445,7 +462,7 @@ const login = asyncHandler(async (req, res, next) => {
     }
 
     // TODO: Remove this after testing
-    if (otp !== "111111") {
+    if (!isDummyOtpAllowed(otp)) {
       await otpService.verifyOtp(verificationId, otp);
     }
 
@@ -454,7 +471,7 @@ const login = asyncHandler(async (req, res, next) => {
       where: { mobileNumber, isActive: true },
       attributes: [
         "userId", "mobileNumber", "userType", "firstName", "lastName",
-        "email", "joinType", "isGuest",
+        "email", "joinType", "isGuest", "createdAt", "lastLoginAt",
       ],
       include: [
         {
@@ -516,6 +533,10 @@ const login = asyncHandler(async (req, res, next) => {
       name: `${existingUser.firstName} ${existingUser.lastName}`,
       email: existingUser.email,
       mobileNumber: existingUser.mobileNumber,
+      // Real account dates so the UI can show "Joined on" / "Last log in".
+      // lastLoginAt is the PRIOR login (it's updated to now() after this fetch).
+      createdAt: existingUser.createdAt,
+      lastLoginAt: existingUser.lastLoginAt,
     };
 
     await logRequest(
@@ -763,9 +784,7 @@ const getClientUsers = asyncHandler(async (req, res, next) => {
       roleWhere.roleName = roleName;
     }
 
-    const pageNumber = parseInt(page);
-    const pageSize = parseInt(limit);
-    const offset = (pageNumber - 1) * pageSize;
+    const { pageNumber, pageSize, offset } = getPagination(page, limit);
 
     const { count, rows: users } = await User.findAndCountAll({
       where: whereClause,
@@ -892,7 +911,7 @@ const verifyOtpHandler = asyncHandler(async (req, res, next) => {
     // Verify OTP via MessageCentral
     // TODO: Remove this after testing
     // await otpService.verifyOtp(verificationId, otp);
-    if (otp !== "111111") {
+    if (!isDummyOtpAllowed(otp)) {
       await otpService.verifyOtp(verificationId, otp);
     }
 
@@ -997,7 +1016,7 @@ const changeMobileNumber = asyncHandler(async (req, res, next) => {
     // Verify OTP
     // TODO: Remove this after testing
     // await otpService.verifyOtp(verificationId, otp);
-    if (otp !== "111111") {
+    if (!isDummyOtpAllowed(otp)) {
       await otpService.verifyOtp(verificationId, otp);
     }
 
@@ -1193,6 +1212,57 @@ const getAvailableRoles = asyncHandler(async (req, res, next) => {
   }
 });
 
+// ============================================
+// SWITCH ROLE  (POST /api/v1/switch-role)
+// ============================================
+// Issues a new access token scoped to a role the user ALREADY holds, so the app can
+// switch the "active role" without re-login. Does NOT grant new roles.
+const switchRole = asyncHandler(async (req, res, next) => {
+  try {
+    const { roleName } = req.body;
+    if (!roleName) {
+      throw createAppError("roleName is required", 400);
+    }
+
+    // Load the user's active roles.
+    const user = await User.findOne({
+      where: { userId: req.user.userId, isActive: true },
+      attributes: ["userId"],
+      include: [
+        {
+          model: Role,
+          as: "roles",
+          through: { attributes: [] },
+          attributes: ["roleName"],
+          where: { isActive: true },
+          required: false,
+        },
+      ],
+    });
+
+    if (!user) throw createAppError("User not found", 404);
+
+    const heldRoles = (user.roles || []).map((r) => r.roleName);
+    if (!heldRoles.includes(roleName)) {
+      throw createAppError(
+        `You do not have the "${roleName}" role. Available: ${heldRoles.join(", ") || "none"}`,
+        403
+      );
+    }
+
+    // New access token carrying the chosen active role.
+    const accessToken = Token.generateAccessToken(req.user.userId, roleName);
+
+    return sendEncodedResponse(res, 200, true, "Role switched successfully", {
+      accessToken,
+      activeRole: roleName,
+      roles: heldRoles,
+    });
+  } catch (error) {
+    return next(error);
+  }
+});
+
 module.exports = {
   sendOtpHandler,
   verifyOtpHandler,
@@ -1203,4 +1273,5 @@ module.exports = {
   getClientUsers,
   changeMobileNumber,
   getAvailableRoles,
+  switchRole,
 };

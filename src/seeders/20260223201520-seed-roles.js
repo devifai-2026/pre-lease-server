@@ -77,7 +77,22 @@ module.exports = {
       `SELECT setval(pg_get_serial_sequence('roles', 'role_id'), MAX(role_id)) FROM roles;`
     );
   },
-  async down(queryInterface) {
-    await queryInterface.bulkDelete("roles", null, {});
+  async down(queryInterface, Sequelize) {
+    // Delete only the seeded reference roles (by name), not user-created rows.
+    const seededRoleNames = [
+      "Owner",
+      "Investor",
+      "Broker",
+      "Sales Executive - Property Manager",
+      "Sales Manager",
+      "Admin",
+      "Super Admin",
+      "Sales Executive - Client Dealer",
+    ];
+    await queryInterface.bulkDelete(
+      "roles",
+      { role_name: { [Sequelize.Op.in]: seededRoleNames } },
+      {}
+    );
   },
 };

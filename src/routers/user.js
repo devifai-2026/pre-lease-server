@@ -11,33 +11,42 @@ const {
   getClientUsers,
   changeMobileNumber,
   getAvailableRoles,
+  switchRole,
 } = require("../controllers/user");
 const { authenticateUser } = require("../middlewares/auth");
 
 // ============================================
 // RATE LIMITERS FOR AUTH ROUTES
 // ============================================
-const authRateLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 10, // 10 requests per window per IP
-  standardHeaders: true,
-  legacyHeaders: false,
-  message: {
-    success: false,
-    message: "Too many requests, please try again after 15 minutes",
-  },
-});
+// Active in staging/production; disabled in development so local QA isn't throttled.
+const noopLimiter = (req, res, next) => next();
+const isDevelopment = process.env.NODE_ENV === "development";
 
-const refreshRateLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 30, // 30 requests per window per IP (higher since it's automated)
-  standardHeaders: true,
-  legacyHeaders: false,
-  message: {
-    success: false,
-    message: "Too many refresh requests, please try again later",
-  },
-});
+const authRateLimiter = isDevelopment
+  ? noopLimiter
+  : rateLimit({
+      windowMs: 15 * 60 * 1000, // 15 minutes
+      max: 10, // 10 requests per window per IP
+      standardHeaders: true,
+      legacyHeaders: false,
+      message: {
+        success: false,
+        message: "Too many requests, please try again after 15 minutes",
+      },
+    });
+
+const refreshRateLimiter = isDevelopment
+  ? noopLimiter
+  : rateLimit({
+      windowMs: 15 * 60 * 1000, // 15 minutes
+      max: 30, // 30 requests per window per IP (higher since it's automated)
+      standardHeaders: true,
+      legacyHeaders: false,
+      message: {
+        success: false,
+        message: "Too many refresh requests, please try again later",
+      },
+    });
 
 // ============================================
 // PUBLIC ROUTES (No Authentication Required)
@@ -82,6 +91,7 @@ userrouter.post("/logout", logout);
 userrouter.get("/refresh-token", refreshRateLimiter, refreshAccessToken);
 userrouter.get("/get-client-users", authenticateUser, getClientUsers);
 userrouter.get("/available-roles", authenticateUser, getAvailableRoles);
+userrouter.post("/switch-role", authenticateUser, switchRole);
 
 // PATCH /api/users/change-mobile
 userrouter.patch("/change-mobile", authenticateUser, changeMobileNumber);

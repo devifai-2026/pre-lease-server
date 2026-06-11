@@ -7,6 +7,7 @@ const {
   PropertyNotificationEvent,
   SalesRelationship,
 } = require("../models");
+const { getPagination } = require("../utils/validators");
 const { Op } = require("sequelize");
 const createAppError = require("../utils/appError");
 const asyncHandler = require("../utils/asyncHandler");
@@ -523,9 +524,7 @@ const getAllPropertiesWithNotes = asyncHandler(async (req, res, next) => {
       noteWhereClause.salesExecutiveId = salesExecutiveId;
     }
 
-    const pageNumber = parseInt(page);
-    const pageSize = parseInt(limit);
-    const offset = (pageNumber - 1) * pageSize;
+    const { pageNumber, pageSize, offset } = getPagination(page, limit);
 
     const { count, rows: noteRecords } = await PropertyManagerNotes.findAndCountAll({
       where: noteWhereClause,

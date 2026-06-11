@@ -16,7 +16,7 @@ const {
 } = require("../models");
 const { sequelize } = require("../config/dbConnection");
 const createAppError = require("../utils/appError");
-const { validateRequiredFields } = require("../utils/validators");
+const { validateRequiredFields, getPagination } = require("../utils/validators");
 const { autoAssignRole } = require("../utils/roleHelper");
 const asyncHandler = require("../utils/asyncHandler");
 const {
@@ -190,6 +190,24 @@ const createProperty = asyncHandler(async (req, res, next) => {
     req.body.amenityIds = parseIfNeeded(req.body.amenityIds);
   }
 
+  // Normalize listing-wizard field aliases onto the canonical names this controller
+  // reads, so client field-name mismatches don't silently drop data (DATA-01..05).
+  const FIELD_ALIASES = {
+    lockInMonths: "lockInPeriodMonths",
+    lockInYears: "lockInPeriodYears",
+    numLifts: "numberOfLifts",
+    fourWheelerParkings: "parkingFourWheeler",
+    twoWheelerParkings: "parkingTwoWheeler",
+    builtYear: "completionYear",
+    lastRefurbished: "lastRefurbishedYear",
+    carpetArea: "carpetAreaSqft",
+  };
+  for (const [alias, canonical] of Object.entries(FIELD_ALIASES)) {
+    if (req.body[alias] !== undefined && req.body[canonical] === undefined) {
+      req.body[canonical] = req.body[alias];
+    }
+  }
+
   const {
     propertyType,
     carpetAreaSqft,
@@ -300,6 +318,32 @@ const createProperty = asyncHandler(async (req, res, next) => {
 
     if (!["owner", "broker"].includes(createdAs)) {
       throw createAppError('createdAs must be "owner" or "broker"', 400);
+    }
+
+    // ── Numeric financial inputs must be positive numbers (no negatives/text) ──
+    // The ROI/yield is computed from these, so bad inputs must be rejected up front.
+    const positiveNumericFields = {
+      sellingPrice,
+      rentPerSqftMonthly,
+      totalMonthlyRent,
+      carpetArea: carpetAreaSqft || carpetArea,
+      propertyTaxAnnual,
+      insuranceAnnual,
+      otherCostsAnnual,
+      additionalIncomeAnnual,
+      securityDepositAmount,
+      maintenanceAmount,
+      annualEscalationPercent,
+    };
+    for (const [field, raw] of Object.entries(positiveNumericFields)) {
+      if (raw === undefined || raw === null || raw === "") continue; // optional
+      const num = Number(raw);
+      if (Number.isNaN(num) || num < 0) {
+        throw createAppError(`${field} must be a positive number`, 400);
+      }
+      if (field === "annualEscalationPercent" && num > 100) {
+        throw createAppError("annualEscalationPercent cannot exceed 100", 400);
+      }
     }
 
     // ── Broker check: must have Broker role AND broker profile ────────────────
@@ -462,7 +506,8 @@ const createProperty = asyncHandler(async (req, res, next) => {
         additionalIncomeAnnual: additionalIncomeAnnual || null,
         ...computeStoredMetrics({
           sellingPrice,
-          rentType: rentType || "Lump Sum",
+          // Must match the default the record is stored with (was "Lump Sum" — mismatch).
+          rentType: rentType || "Per Sq Ft",
           rentPerSqftMonthly,
           totalMonthlyRent,
           carpetArea: carpetAreaSqft || carpetArea,
@@ -1733,9 +1778,7 @@ const getAllProperties = asyncHandler(async (req, res, next) => {
     if (brokerId) whereClause.brokerId = brokerId;
     if (salesId) whereClause.salesId = salesId;
 
-    const pageNumber = parseInt(page);
-    const pageSize = parseInt(limit);
-    const offset = (pageNumber - 1) * pageSize;
+    const { pageNumber, pageSize, offset } = getPagination(page, limit);
 
     const { count, rows: properties } = await Property.findAndCountAll({
       where: whereClause,
@@ -2119,9 +2162,7 @@ const getAssignedProperties = asyncHandler(async (req, res, next) => {
       whereClause.isVerified = buildIsVerifiedClause(isVerified);
     }
 
-    const pageNumber = parseInt(page);
-    const pageSize = parseInt(limit);
-    const offset = (pageNumber - 1) * pageSize;
+    const { pageNumber, pageSize, offset } = getPagination(page, limit);
 
     const { count, rows: properties } = await Property.findAndCountAll({
       where: whereClause,
@@ -2549,9 +2590,7 @@ const getHotProperties = asyncHandler(async (req, res, next) => {
       whereClause.isVerified = buildIsVerifiedClause(isVerified);
     }
 
-    const pageNumber = parseInt(page);
-    const pageSize = parseInt(limit);
-    const offset = (pageNumber - 1) * pageSize;
+    const { pageNumber, pageSize, offset } = getPagination(page, limit);
 
     const { count, rows: properties } = await Property.findAndCountAll({
       where: whereClause,

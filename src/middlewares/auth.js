@@ -79,6 +79,22 @@ const authenticateUser = asyncHandler(async (req, res, next) => {
 });
 
 /**
+ * Optional auth: if a valid Bearer token is present, attach { userId } to req.user;
+ * otherwise continue as a guest. Never blocks. Use on public routes that want to
+ * link a submission to a logged-in user when one is present (e.g. support requests).
+ */
+const attachUserIfPresent = asyncHandler(async (req, res, next) => {
+  const authHeader = req.headers.authorization;
+  if (authHeader && authHeader.startsWith("Bearer ")) {
+    const { valid, decoded } = Token.verifyAccessToken(authHeader.split(" ")[1]);
+    if (valid && decoded?._id) {
+      req.user = { userId: decoded._id };
+    }
+  }
+  next();
+});
+
+/**
  * ✅ Middleware to check if user has specific permission
  * Fetches ONLY the required permission from database (single targeted query)
  * @param {string} permissionCode - Permission code (e.g., 'PROPERTY_CREATE')
@@ -328,6 +344,7 @@ const checkOperationalStaff = checkExcludeRole(["Owner", "Broker", "Investor"]);
 
 module.exports = {
   authenticateUser,
+  attachUserIfPresent,
   checkPermission,
   checkAnyPermission,
   checkAllPermissions,

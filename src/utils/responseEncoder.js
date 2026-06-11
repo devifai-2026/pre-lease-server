@@ -69,7 +69,10 @@ const sendEncodedResponse = (
     data: encodeData(data), // Encode only the data field
     ...additionalFields, // Include pagination, filters, etc. as plain text
   };
-  console.log(decodeData(response.data));
+  // Never log decoded payloads (tokens/PII) in non-development environments.
+  if (process.env.NODE_ENV === "development" && process.env.DEBUG_RESPONSES === "true") {
+    console.log(decodeData(response.data));
+  }
   return res.status(statusCode).json(response);
 };
 

@@ -1,0 +1,394 @@
+// Pre-Lease Server — Database Architecture
+// PostgreSQL (Sequelize) + MongoDB (Mongoose, separate store)
+// Docs: https://dbml.dbdiagram.io/docs
+// Paste into https://dbdiagram.io for an auto-laid-out ER diagram.
+
+// ============================================================
+// AUTH & RBAC
+// ============================================================
+
+Table users {
+  user_id uuid [primary key]
+  first_name varchar(100)
+  last_name varchar(100)
+  mobile_number varchar(20) [not null]
+  email varchar(255) [unique, note: 'validated as email']
+  rera_number varchar(50) [unique]
+  user_type varchar(20) [not null, note: 'client | admin']
+  otp varchar(6)
+  otp_expires_at timestamp
+  is_active boolean [not null, default: true]
+  deleted_at timestamp
+  last_login_at timestamp
+  created_at timestamp
+  updated_at timestamp
+}
+
+Table roles {
+  role_id integer [primary key, increment]
+  role_name varchar(50) [not null, unique]
+  role_type varchar(20) [not null, note: 'client | admin']
+  description text
+  is_active boolean [not null, default: true]
+  created_at timestamp
+}
+
+Table permissions {
+  permission_id integer [primary key, increment]
+  code varchar(100) [not null, unique]
+  description text
+  category varchar(50)
+  created_at timestamp
+}
+
+Table user_roles {
+  user_id uuid [not null]
+  role_id integer [not null]
+  assigned_at timestamp [not null, default: `now()`]
+  assigned_by uuid
+  indexes {
+    (user_id, role_id) [pk]
+  }
+}
+
+Table role_permissions {
+  role_id integer [not null]
+  permission_id integer [not null]
+  granted_at timestamp [not null, default: `now()`]
+  granted_by uuid
+  indexes {
+    (role_id, permission_id) [pk]
+  }
+}
+
+Table tokens {
+  token_id uuid [primary key]
+  user_id uuid [not null]
+  refresh_token varchar(500) [not null, unique]
+  device_id varchar(255)
+  user_agent text
+  ip_address varchar(50)
+  issued_at timestamp [not null, default: `now()`]
+  expires_at timestamp [not null]
+  last_used_at timestamp
+  is_active boolean [not null, default: true]
+  revocation_reason varchar(100)
+  request_from varchar(100)
+}
+
+// ============================================================
+// PROPERTY CORE
+// ============================================================
+
+Table properties {
+  property_id uuid [primary key]
+  owner_id uuid [note: 'FK -> users']
+  broker_id uuid [note: 'FK -> users']
+  sales_id uuid [note: 'FK -> users']
+  maintained_by_id integer [note: 'FK -> caretakers']
+
+  // Basic details
+  property_type varchar(50) [note: 'Residential | Retail | Offices | Industrial | Others']
+  carpet_area decimal(10,2)
+  carpet_area_unit varchar(20) [default: 'Sq. Feet']
+  completion_year integer
+  last_refurbished_year integer
+  building_grade varchar(20) [note: 'A+ | A | B+ | B | C']
+  ownership_type varchar(50) [note: 'Freehold | Leasehold | Jointly-hold | Government Owned']
+  parking_two_wheeler integer [default: 0]
+  parking_four_wheeler integer [default: 0]
+  power_backup varchar(20) [note: 'Yes | No']
+  number_of_lifts integer
+  hvac_type varchar(50)
+  furnishing_status varchar(100)
+  description text
+  additional_description text
+
+  // Legal & title
+  title_status varchar(50) [note: 'No Litigation | Pending Litigation']
+  occupancy_certificate varchar(50)
+  lease_registration varchar(50)
+  has_pending_litigation boolean [default: false]
+  litigation_details text
+  rera_number varchar(50)
+
+  // Lease & tenant
+  tenant_type varchar(50) [note: 'Government | Startup | MNC | Corporate | Others']
+  lease_start_date date
+  lease_end_date date
+  lock_in_period_years integer
+  lock_in_period_months integer
+  lease_duration_years decimal(5,2)
+  rent_type varchar(20) [default: 'Per Sq Ft']
+  rent_per_sqft_monthly decimal(10,2)
+  total_monthly_rent decimal(12,2)
+  security_deposit_type varchar(20) [default: 'Months of Rent']
+  security_deposit_months integer
+  security_deposit_amount decimal(12,2)
+  escalation_frequency_years decimal(5,2)
+  annual_escalation_percent decimal(5,2)
+  maintenance_costs_included varchar(50)
+  maintenance_type varchar(20)
+  maintenance_amount decimal(10,2)
+
+  // Location
+  micro_market varchar(100)
+  city varchar(100)
+  state varchar(100)
+
+  // Market intelligence
+  demand_drivers text
+  upcoming_developments text
+
+  // Financial analytics
+  selling_price decimal(15,2)
+  property_tax_annual decimal(12,2)
+  insurance_annual decimal(12,2)
+  other_costs_annual decimal(12,2)
+  total_operating_annual_costs decimal(12,2)
+  additional_income_annual decimal(12,2)
+  annual_gross_rent decimal(12,2)
+  gross_rental_yield decimal(5,2)
+  net_rental_yield decimal(5,2)
+  payback_period_years decimal(5,2)
+
+  // Status
+  is_verified varchar(20) [not null, default: 'pending', note: 'pending | partial | completed']
+  selling_status varchar(50) [not null, default: 'verification of requirement', note: '7-stage pipeline']
+  is_active boolean [not null, default: true]
+  created_at timestamp
+  updated_at timestamp
+}
+
+Table caretakers {
+  caretaker_id integer [primary key, increment]
+  caretaker_name varchar(200) [not null, unique]
+  caretaker_type varchar(50)
+  contact_info varchar(100)
+  is_active boolean [not null, default: true]
+  created_at timestamp
+}
+
+Table amenities {
+  amenity_id integer [primary key, increment]
+  amenity_name varchar(100) [not null, unique]
+  category varchar(50)
+  is_active boolean [not null, default: true]
+  created_at timestamp
+}
+
+Table property_amenities {
+  property_id uuid [not null]
+  amenity_id integer [not null]
+  added_at timestamp [not null, default: `now()`]
+  indexes {
+    (property_id, amenity_id) [pk]
+  }
+}
+
+Table property_certifications {
+  property_id uuid [not null]
+  certification_type varchar(50) [not null]
+  certification_details text
+  created_at timestamp
+  indexes {
+    (property_id, certification_type) [pk]
+  }
+}
+
+Table property_connectivity {
+  connectivity_id integer [primary key, increment]
+  property_id uuid [not null]
+  connectivity_type varchar(50)
+  name varchar(200)
+  distance_km decimal(10,2)
+  created_at timestamp
+}
+
+Table property_media {
+  media_id integer [primary key, increment]
+  property_id uuid [not null]
+  media_type varchar(20) [note: 'photo | video']
+  file_url text [not null]
+  uploaded_at timestamp [not null, default: `now()`]
+}
+
+// ============================================================
+// WORKFLOW / CRM
+// ============================================================
+
+Table sales_relationship {
+  id uuid [primary key]
+  sales_executive_id uuid [not null, note: 'FK -> users']
+  sales_manager_id uuid [not null, note: 'FK -> users']
+  assigned_at timestamp [not null, default: `now()`]
+  assigned_by uuid [note: 'FK -> users']
+  unassigned_at timestamp
+  unassigned_by uuid [note: 'FK -> users']
+  is_active boolean [not null, default: true]
+  remarks text
+  created_at timestamp
+  updated_at timestamp
+}
+
+Table property_manager_notes {
+  note_id uuid [primary key]
+  property_id uuid [not null]
+  sales_executive_id uuid [not null, note: 'FK -> users (creator)']
+  notes text [not null]
+  status varchar [not null, default: 'approved', note: 'enum: pending | approved | denied']
+  is_active boolean [not null, default: true]
+  edited_by uuid [note: 'FK -> users']
+  approved_by uuid [note: 'FK -> users']
+  created_by uuid [note: 'FK -> users']
+  updated_by uuid [note: 'FK -> users']
+  is_edited boolean [not null, default: false]
+  edited_note text
+  created_at timestamp
+  updated_at timestamp
+}
+
+Table property_inquiries {
+  id uuid [primary key]
+  property_id uuid [not null]
+  inquirer_id uuid [not null, note: 'FK -> users']
+  inquiry text [not null]
+  priority varchar [default: 'medium', note: 'enum: low | medium | high | urgent']
+  assigned_to uuid [note: 'FK -> users']
+  assigned_by uuid
+  assigned_at timestamp
+  source varchar(50)
+  created_at timestamp
+  updated_at timestamp
+}
+
+Table property_notification_event {
+  id uuid [primary key]
+  property_id uuid [not null]
+  user_id uuid [not null]
+  notification_text text [not null]
+  title varchar(100)
+  is_read boolean [default: false]
+  is_deleted boolean [default: false]
+  created_at timestamp
+  updated_at timestamp
+}
+
+Table property_verification_logs {
+  id uuid [primary key]
+  property_id uuid [not null]
+  user_id uuid [not null]
+  role_at_verification varchar(100) [not null]
+  status varchar(20) [not null, default: 'verified']
+  created_at timestamp
+  updated_at timestamp
+  indexes {
+    (property_id, user_id) [unique, name: 'unique_property_user_verification']
+  }
+}
+
+Table property_likes {
+  id integer [primary key, increment]
+  user_id uuid [not null]
+  property_id uuid [not null]
+  created_at timestamp
+  updated_at timestamp
+}
+
+// ============================================================
+// LOGGING
+// ============================================================
+
+Table audit_logs {
+  audit_log_id integer [primary key, increment]
+  user_id uuid [not null]
+  operation varchar(20) [not null, note: 'INSERT | UPDATE | DELETE']
+  entity_type varchar(50) [not null]
+  record_id uuid [not null, note: 'polymorphic -> properties etc.']
+  old_value jsonb [note: 'NULL for INSERT']
+  new_value jsonb [note: 'NULL for DELETE']
+  table_name varchar(50)
+  ip_address inet
+  user_agent text
+  created_at timestamp [note: 'immutable']
+}
+
+// MongoDB collection (Mongoose) — separate store, no enforced FKs.
+// Modeled here for completeness only.
+Table api_logs {
+  _id varchar [primary key, note: 'MongoDB ObjectId']
+  user_id varchar [note: 'soft ref -> users, not enforced']
+  http_method varchar [not null]
+  endpoint varchar [not null]
+  request_headers json
+  request_body json
+  query_params json
+  response_status integer
+  response_body json
+  ip_address varchar
+  user_agent varchar
+  request_timestamp timestamp [default: `now()`]
+  response_timestamp timestamp
+  response_time_ms integer
+  error_message text
+  stack_trace text
+  environment varchar
+}
+
+// ============================================================
+// RELATIONSHIPS
+// ============================================================
+
+// --- Auth & RBAC ---
+Ref: user_roles.user_id > users.user_id
+Ref: user_roles.role_id > roles.role_id
+Ref: user_roles.assigned_by > users.user_id
+
+Ref: role_permissions.role_id > roles.role_id
+Ref: role_permissions.permission_id > permissions.permission_id
+Ref: role_permissions.granted_by > users.user_id
+
+Ref: tokens.user_id > users.user_id
+
+// --- Property core ---
+Ref: properties.owner_id > users.user_id
+Ref: properties.broker_id > users.user_id
+Ref: properties.sales_id > users.user_id
+Ref: properties.maintained_by_id > caretakers.caretaker_id
+
+Ref: property_amenities.property_id > properties.property_id
+Ref: property_amenities.amenity_id > amenities.amenity_id
+
+Ref: property_certifications.property_id > properties.property_id
+Ref: property_connectivity.property_id > properties.property_id
+Ref: property_media.property_id > properties.property_id
+
+// --- Workflow / CRM ---
+Ref: sales_relationship.sales_executive_id > users.user_id
+Ref: sales_relationship.sales_manager_id > users.user_id
+Ref: sales_relationship.assigned_by > users.user_id
+Ref: sales_relationship.unassigned_by > users.user_id
+
+Ref: property_manager_notes.property_id > properties.property_id
+Ref: property_manager_notes.sales_executive_id > users.user_id
+Ref: property_manager_notes.edited_by > users.user_id
+Ref: property_manager_notes.approved_by > users.user_id
+Ref: property_manager_notes.created_by > users.user_id
+Ref: property_manager_notes.updated_by > users.user_id
+
+Ref: property_inquiries.property_id > properties.property_id
+Ref: property_inquiries.inquirer_id > users.user_id
+Ref: property_inquiries.assigned_to > users.user_id
+
+Ref: property_notification_event.property_id > properties.property_id
+Ref: property_notification_event.user_id > users.user_id
+
+Ref: property_verification_logs.property_id > properties.property_id
+Ref: property_verification_logs.user_id > users.user_id
+
+Ref: property_likes.property_id > properties.property_id
+Ref: property_likes.user_id > users.user_id
+
+// --- Logging ---
+Ref: audit_logs.user_id > users.user_id
+// audit_logs.record_id is polymorphic (constraints: false), commonly -> properties.property_id

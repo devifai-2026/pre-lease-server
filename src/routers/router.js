@@ -10,6 +10,8 @@ const rolePermission = require("./rolePermission");
 const analytics = require("./analytics");
 const brokers = require("./brokers");
 const calculator = require("./calculator");
+const blog = require("./blog");
+const supportRequest = require("./supportRequest");
 
 router.use(user);
 router.use(property);
@@ -19,5 +21,7 @@ router.use("/admin", analytics);
 router.use(inquiry);
 router.use(rolePermission);
 router.use(calculator);
+router.use(blog);
+router.use(supportRequest);
 
 module.exports = router;

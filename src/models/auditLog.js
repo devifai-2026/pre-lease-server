@@ -50,7 +50,9 @@ const AuditLog = sequelize.define(
     },
 
     recordId: {
-      type: DataTypes.UUID,
+      // Column is TEXT in the migration (can hold UUIDs or other entity keys).
+      // Keep the model type aligned with the DB column to avoid UUID-cast errors.
+      type: DataTypes.TEXT,
       allowNull: false,
       comment: "ID of the affected record (property_id, user_id, etc.)",
       // Foreign key association defined in models/index.js

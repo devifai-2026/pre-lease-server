@@ -1,0 +1,281 @@
+<mxfile host="app.diagrams.net" agent="Claude Code" version="24.0.0" type="device">
+  <diagram name="DB Architecture" id="pre-lease-db">
+    <mxGraphModel dx="2400" dy="1600" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="3300" pageHeight="2400" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+
+        <!-- ============ LEGEND ============ -->
+        <mxCell id="legend" value="Pre-Lease Server — Database Architecture (ER)&#10;PostgreSQL (Sequelize) + MongoDB (Mongoose, separate store)&#10;PK = Primary Key   FK = Foreign Key   M:N via junction tables" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;align=left;verticalAlign=top;spacing=8;fontSize=12;fontStyle=1" vertex="1" parent="1">
+          <mxGeometry x="40" y="20" width="640" height="80" as="geometry" />
+        </mxCell>
+
+        <!-- ============================================================ -->
+        <!-- USER & RBAC CLUSTER                                          -->
+        <!-- ============================================================ -->
+
+        <!-- USERS -->
+        <mxCell id="users" value="users" style="shape=table;startSize=30;container=1;collapsible=0;childLayout=tableLayout;fixedRows=1;rowLines=0;fontStyle=1;align=center;fillColor=#dae8fc;strokeColor=#6c8ebf;" vertex="1" parent="1">
+          <mxGeometry x="40" y="160" width="280" height="330" as="geometry" />
+        </mxCell>
+        <mxCell id="users-r1" value="" style="shape=tableRow;horizontal=0;startSize=0;swimlaneHead=0;swimlaneBody=0;strokeColor=inherit;top=0;left=0;bottom=0;right=0;collapsible=0;dropTarget=0;fillColor=none;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;fontSize=11;" vertex="1" parent="users"><mxGeometry y="30" width="280" height="22" as="geometry" /></mxCell>
+        <mxCell id="users-c1" value="🔑 userId : UUID PK" style="shape=partialRectangle;overflow=hidden;connectable=0;fillColor=none;top=0;left=0;bottom=0;right=0;fontStyle=5;align=left;spacingLeft=4;" vertex="1" parent="users-r1"><mxGeometry width="280" height="22" as="geometry" /></mxCell>
+        <mxCell id="users-r2" value="" style="shape=tableRow;horizontal=0;startSize=0;swimlaneHead=0;swimlaneBody=0;strokeColor=inherit;top=0;left=0;bottom=0;right=0;collapsible=0;dropTarget=0;fillColor=none;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;fontSize=11;" vertex="1" parent="users"><mxGeometry y="52" width="280" height="22" as="geometry" /></mxCell>
+        <mxCell id="users-c2" value="firstName : STRING(100)&#10;lastName : STRING(100)&#10;mobileNumber : STRING(20) NOT NULL&#10;email : STRING(255) UNIQUE&#10;reraNumber : STRING(50) UNIQUE&#10;userType : STRING(20) [client|admin]&#10;otp : STRING(6)&#10;otpExpiresAt : DATE&#10;isActive : BOOL = true&#10;deletedAt : DATE&#10;lastLoginAt : DATE&#10;createdAt / updatedAt : DATE" style="shape=partialRectangle;overflow=hidden;connectable=0;fillColor=none;top=0;left=0;bottom=0;right=0;align=left;spacingLeft=4;" vertex="1" parent="users-r2"><mxGeometry width="280" height="22" as="geometry" /></mxCell>
+
+        <!-- ROLES -->
+        <mxCell id="roles" value="roles" style="shape=table;startSize=30;container=1;collapsible=0;childLayout=tableLayout;fixedRows=1;rowLines=0;fontStyle=1;align=center;fillColor=#dae8fc;strokeColor=#6c8ebf;" vertex="1" parent="1">
+          <mxGeometry x="420" y="160" width="240" height="170" as="geometry" />
+        </mxCell>
+        <mxCell id="roles-r1" value="" style="shape=tableRow;horizontal=0;startSize=0;swimlaneHead=0;swimlaneBody=0;strokeColor=inherit;top=0;left=0;bottom=0;right=0;collapsible=0;dropTarget=0;fillColor=none;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;fontSize=11;" vertex="1" parent="roles"><mxGeometry y="30" width="240" height="22" as="geometry" /></mxCell>
+        <mxCell id="roles-c1" value="🔑 roleId : INT PK AI" style="shape=partialRectangle;overflow=hidden;connectable=0;fillColor=none;top=0;left=0;bottom=0;right=0;fontStyle=5;align=left;spacingLeft=4;" vertex="1" parent="roles-r1"><mxGeometry width="240" height="22" as="geometry" /></mxCell>
+        <mxCell id="roles-r2" value="" style="shape=tableRow;horizontal=0;startSize=0;swimlaneHead=0;swimlaneBody=0;strokeColor=inherit;top=0;left=0;bottom=0;right=0;collapsible=0;dropTarget=0;fillColor=none;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;fontSize=11;" vertex="1" parent="roles"><mxGeometry y="52" width="240" height="22" as="geometry" /></mxCell>
+        <mxCell id="roles-c2" value="roleName : STRING(50) UNIQUE&#10;roleType : STRING(20) [client|admin]&#10;description : TEXT&#10;isActive : BOOL = true&#10;createdAt : DATE" style="shape=partialRectangle;overflow=hidden;connectable=0;fillColor=none;top=0;left=0;bottom=0;right=0;align=left;spacingLeft=4;" vertex="1" parent="roles-r2"><mxGeometry width="240" height="22" as="geometry" /></mxCell>
+
+        <!-- PERMISSIONS -->
+        <mxCell id="permissions" value="permissions" style="shape=table;startSize=30;container=1;collapsible=0;childLayout=tableLayout;fixedRows=1;rowLines=0;fontStyle=1;align=center;fillColor=#dae8fc;strokeColor=#6c8ebf;" vertex="1" parent="1">
+          <mxGeometry x="420" y="380" width="240" height="140" as="geometry" />
+        </mxCell>
+        <mxCell id="perm-r1" value="" style="shape=tableRow;horizontal=0;startSize=0;swimlaneHead=0;swimlaneBody=0;strokeColor=inherit;top=0;left=0;bottom=0;right=0;collapsible=0;dropTarget=0;fillColor=none;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;fontSize=11;" vertex="1" parent="permissions"><mxGeometry y="30" width="240" height="22" as="geometry" /></mxCell>
+        <mxCell id="perm-c1" value="🔑 permissionId : INT PK AI" style="shape=partialRectangle;overflow=hidden;connectable=0;fillColor=none;top=0;left=0;bottom=0;right=0;fontStyle=5;align=left;spacingLeft=4;" vertex="1" parent="perm-r1"><mxGeometry width="240" height="22" as="geometry" /></mxCell>
+        <mxCell id="perm-r2" value="" style="shape=tableRow;horizontal=0;startSize=0;swimlaneHead=0;swimlaneBody=0;strokeColor=inherit;top=0;left=0;bottom=0;right=0;collapsible=0;dropTarget=0;fillColor=none;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;fontSize=11;" vertex="1" parent="permissions"><mxGeometry y="52" width="240" height="22" as="geometry" /></mxCell>
+        <mxCell id="perm-c2" value="code : STRING(100) UNIQUE&#10;description : TEXT&#10;category : STRING(50)&#10;createdAt : DATE" style="shape=partialRectangle;overflow=hidden;connectable=0;fillColor=none;top=0;left=0;bottom=0;right=0;align=left;spacingLeft=4;" vertex="1" parent="perm-r2"><mxGeometry width="240" height="22" as="geometry" /></mxCell>
+
+        <!-- USER_ROLES (junction) -->
+        <mxCell id="user_roles" value="user_roles  (junction)" style="shape=table;startSize=30;container=1;collapsible=0;childLayout=tableLayout;fixedRows=1;rowLines=0;fontStyle=1;align=center;fillColor=#d5e8d4;strokeColor=#82b366;" vertex="1" parent="1">
+          <mxGeometry x="760" y="160" width="260" height="130" as="geometry" />
+        </mxCell>
+        <mxCell id="ur-r1" value="" style="shape=tableRow;horizontal=0;startSize=0;swimlaneHead=0;swimlaneBody=0;strokeColor=inherit;top=0;left=0;bottom=0;right=0;collapsible=0;dropTarget=0;fillColor=none;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;fontSize=11;" vertex="1" parent="user_roles"><mxGeometry y="30" width="260" height="22" as="geometry" /></mxCell>
+        <mxCell id="ur-c1" value="🔑 userId : UUID PK,FK→users&#10;🔑 roleId : INT PK,FK→roles" style="shape=partialRectangle;overflow=hidden;connectable=0;fillColor=none;top=0;left=0;bottom=0;right=0;fontStyle=5;align=left;spacingLeft=4;" vertex="1" parent="ur-r1"><mxGeometry width="260" height="22" as="geometry" /></mxCell>
+        <mxCell id="ur-r2" value="" style="shape=tableRow;horizontal=0;startSize=0;swimlaneHead=0;swimlaneBody=0;strokeColor=inherit;top=0;left=0;bottom=0;right=0;collapsible=0;dropTarget=0;fillColor=none;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;fontSize=11;" vertex="1" parent="user_roles"><mxGeometry y="52" width="260" height="22" as="geometry" /></mxCell>
+        <mxCell id="ur-c2" value="assignedAt : DATE = now&#10;assignedBy : UUID FK→users" style="shape=partialRectangle;overflow=hidden;connectable=0;fillColor=none;top=0;left=0;bottom=0;right=0;align=left;spacingLeft=4;" vertex="1" parent="ur-r2"><mxGeometry width="260" height="22" as="geometry" /></mxCell>
+
+        <!-- ROLE_PERMISSIONS (junction) -->
+        <mxCell id="role_permissions" value="role_permissions  (junction)" style="shape=table;startSize=30;container=1;collapsible=0;childLayout=tableLayout;fixedRows=1;rowLines=0;fontStyle=1;align=center;fillColor=#d5e8d4;strokeColor=#82b366;" vertex="1" parent="1">
+          <mxGeometry x="760" y="380" width="260" height="130" as="geometry" />
+        </mxCell>
+        <mxCell id="rp-r1" value="" style="shape=tableRow;horizontal=0;startSize=0;swimlaneHead=0;swimlaneBody=0;strokeColor=inherit;top=0;left=0;bottom=0;right=0;collapsible=0;dropTarget=0;fillColor=none;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;fontSize=11;" vertex="1" parent="role_permissions"><mxGeometry y="30" width="260" height="22" as="geometry" /></mxCell>
+        <mxCell id="rp-c1" value="🔑 roleId : INT PK,FK→roles&#10;🔑 permissionId : INT PK,FK→permissions" style="shape=partialRectangle;overflow=hidden;connectable=0;fillColor=none;top=0;left=0;bottom=0;right=0;fontStyle=5;align=left;spacingLeft=4;" vertex="1" parent="rp-r1"><mxGeometry width="260" height="22" as="geometry" /></mxCell>
+        <mxCell id="rp-r2" value="" style="shape=tableRow;horizontal=0;startSize=0;swimlaneHead=0;swimlaneBody=0;strokeColor=inherit;top=0;left=0;bottom=0;right=0;collapsible=0;dropTarget=0;fillColor=none;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;fontSize=11;" vertex="1" parent="role_permissions"><mxGeometry y="52" width="260" height="22" as="geometry" /></mxCell>
+        <mxCell id="rp-c2" value="grantedAt : DATE = now&#10;grantedBy : UUID FK→users" style="shape=partialRectangle;overflow=hidden;connectable=0;fillColor=none;top=0;left=0;bottom=0;right=0;align=left;spacingLeft=4;" vertex="1" parent="rp-r2"><mxGeometry width="260" height="22" as="geometry" /></mxCell>
+
+        <!-- TOKENS -->
+        <mxCell id="tokens" value="tokens" style="shape=table;startSize=30;container=1;collapsible=0;childLayout=tableLayout;fixedRows=1;rowLines=0;fontStyle=1;align=center;fillColor=#dae8fc;strokeColor=#6c8ebf;" vertex="1" parent="1">
+          <mxGeometry x="40" y="560" width="280" height="220" as="geometry" />
+        </mxCell>
+        <mxCell id="tok-r1" value="" style="shape=tableRow;horizontal=0;startSize=0;swimlaneHead=0;swimlaneBody=0;strokeColor=inherit;top=0;left=0;bottom=0;right=0;collapsible=0;dropTarget=0;fillColor=none;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;fontSize=11;" vertex="1" parent="tokens"><mxGeometry y="30" width="280" height="22" as="geometry" /></mxCell>
+        <mxCell id="tok-c1" value="🔑 tokenId : UUID PK" style="shape=partialRectangle;overflow=hidden;connectable=0;fillColor=none;top=0;left=0;bottom=0;right=0;fontStyle=5;align=left;spacingLeft=4;" vertex="1" parent="tok-r1"><mxGeometry width="280" height="22" as="geometry" /></mxCell>
+        <mxCell id="tok-r2" value="" style="shape=tableRow;horizontal=0;startSize=0;swimlaneHead=0;swimlaneBody=0;strokeColor=inherit;top=0;left=0;bottom=0;right=0;collapsible=0;dropTarget=0;fillColor=none;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;fontSize=11;" vertex="1" parent="tokens"><mxGeometry y="52" width="280" height="22" as="geometry" /></mxCell>
+        <mxCell id="tok-c2" value="🔗 userId : UUID FK→users&#10;refreshToken : STRING(500) UNIQUE&#10;deviceId : STRING(255)&#10;userAgent : TEXT&#10;ipAddress : STRING(50)&#10;issuedAt : DATE = now&#10;expiresAt : DATE NOT NULL&#10;lastUsedAt : DATE&#10;isActive : BOOL = true&#10;revocationReason : STRING(100)&#10;requestFrom : STRING(100)" style="shape=partialRectangle;overflow=hidden;connectable=0;fillColor=none;top=0;left=0;bottom=0;right=0;align=left;spacingLeft=4;" vertex="1" parent="tok-r2"><mxGeometry width="280" height="22" as="geometry" /></mxCell>
+
+        <!-- ============================================================ -->
+        <!-- PROPERTY CORE CLUSTER                                        -->
+        <!-- ============================================================ -->
+
+        <!-- PROPERTIES (big) -->
+        <mxCell id="properties" value="properties" style="shape=table;startSize=30;container=1;collapsible=0;childLayout=tableLayout;fixedRows=1;rowLines=0;fontStyle=1;align=center;fillColor=#ffe6cc;strokeColor=#d79b00;" vertex="1" parent="1">
+          <mxGeometry x="1180" y="140" width="360" height="720" as="geometry" />
+        </mxCell>
+        <mxCell id="prop-r1" value="" style="shape=tableRow;horizontal=0;startSize=0;swimlaneHead=0;swimlaneBody=0;strokeColor=inherit;top=0;left=0;bottom=0;right=0;collapsible=0;dropTarget=0;fillColor=none;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;fontSize=11;" vertex="1" parent="properties"><mxGeometry y="30" width="360" height="22" as="geometry" /></mxCell>
+        <mxCell id="prop-c1" value="🔑 propertyId : UUID PK" style="shape=partialRectangle;overflow=hidden;connectable=0;fillColor=none;top=0;left=0;bottom=0;right=0;fontStyle=5;align=left;spacingLeft=4;" vertex="1" parent="prop-r1"><mxGeometry width="360" height="22" as="geometry" /></mxCell>
+        <mxCell id="prop-r2" value="" style="shape=tableRow;horizontal=0;startSize=0;swimlaneHead=0;swimlaneBody=0;strokeColor=inherit;top=0;left=0;bottom=0;right=0;collapsible=0;dropTarget=0;fillColor=none;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;fontSize=11;" vertex="1" parent="properties"><mxGeometry y="52" width="360" height="22" as="geometry" /></mxCell>
+        <mxCell id="prop-c2" value="🔗 ownerId : UUID FK→users&#10;🔗 brokerId : UUID FK→users&#10;🔗 salesId : UUID FK→users&#10;🔗 maintainedById : INT FK→caretakers&#10;── Basic ──&#10;propertyType : STRING(50) [Residential|Retail|Offices|Industrial|Others]&#10;carpetArea : DECIMAL(10,2)  carpetAreaUnit : STRING(20)&#10;completionYear / lastRefurbishedYear : INT&#10;buildingGrade : STRING(20) [A+|A|B+|B|C]&#10;ownershipType : STRING(50)&#10;parkingTwoWheeler / parkingFourWheeler : INT&#10;powerBackup : STRING(20)  numberOfLifts : INT&#10;hvacType : STRING(50)  furnishingStatus : STRING(100)&#10;description / additionalDescription : TEXT&#10;── Legal ──&#10;titleStatus / occupancyCertificate : STRING(50)&#10;leaseRegistration : STRING(50)&#10;hasPendingLitigation : BOOL  litigationDetails : TEXT&#10;reraNumber : STRING(50)&#10;── Lease and Tenant ──&#10;tenantType : STRING(50)&#10;leaseStartDate / leaseEndDate : DATEONLY&#10;lockInPeriodYears / Months : INT&#10;leaseDurationYears : DECIMAL(5,2)&#10;rentType : STRING(20)  rentPerSqftMonthly : DECIMAL(10,2)&#10;totalMonthlyRent : DECIMAL(12,2)&#10;securityDepositType : STRING(20)&#10;securityDepositMonths : INT&#10;securityDepositAmount : DECIMAL(12,2)&#10;escalationFrequencyYears / annualEscalationPercent : DEC(5,2)&#10;maintenanceCostsIncluded / Type / Amount&#10;── Location ──&#10;microMarket / city / state : STRING(100)&#10;── Market Intel ──&#10;demandDrivers / upcomingDevelopments : TEXT&#10;── Financials ──&#10;sellingPrice : DECIMAL(15,2)&#10;propertyTaxAnnual / insuranceAnnual : DEC(12,2)&#10;otherCostsAnnual / totalOperatingAnnualCosts : DEC(12,2)&#10;additionalIncomeAnnual / annualGrossRent : DEC(12,2)&#10;grossRentalYield / netRentalYield : DEC(5,2)&#10;paybackPeriodYears : DEC(5,2)&#10;── Status ──&#10;isVerified : STRING(20) [pending|partial|completed]&#10;sellingStatus : STRING(50) [7-stage pipeline]&#10;isActive : BOOL = true&#10;createdAt / updatedAt : DATE" style="shape=partialRectangle;overflow=hidden;connectable=0;fillColor=none;top=0;left=0;bottom=0;right=0;align=left;spacingLeft=4;fontSize=10;" vertex="1" parent="prop-r2"><mxGeometry width="360" height="22" as="geometry" /></mxCell>
+
+        <!-- CARETAKERS -->
+        <mxCell id="caretakers" value="caretakers" style="shape=table;startSize=30;container=1;collapsible=0;childLayout=tableLayout;fixedRows=1;rowLines=0;fontStyle=1;align=center;fillColor=#ffe6cc;strokeColor=#d79b00;" vertex="1" parent="1">
+          <mxGeometry x="760" y="600" width="240" height="150" as="geometry" />
+        </mxCell>
+        <mxCell id="care-r1" value="" style="shape=tableRow;horizontal=0;startSize=0;swimlaneHead=0;swimlaneBody=0;strokeColor=inherit;top=0;left=0;bottom=0;right=0;collapsible=0;dropTarget=0;fillColor=none;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;fontSize=11;" vertex="1" parent="caretakers"><mxGeometry y="30" width="240" height="22" as="geometry" /></mxCell>
+        <mxCell id="care-c1" value="🔑 caretakerId : INT PK AI" style="shape=partialRectangle;overflow=hidden;connectable=0;fillColor=none;top=0;left=0;bottom=0;right=0;fontStyle=5;align=left;spacingLeft=4;" vertex="1" parent="care-r1"><mxGeometry width="240" height="22" as="geometry" /></mxCell>
+        <mxCell id="care-r2" value="" style="shape=tableRow;horizontal=0;startSize=0;swimlaneHead=0;swimlaneBody=0;strokeColor=inherit;top=0;left=0;bottom=0;right=0;collapsible=0;dropTarget=0;fillColor=none;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;fontSize=11;" vertex="1" parent="caretakers"><mxGeometry y="52" width="240" height="22" as="geometry" /></mxCell>
+        <mxCell id="care-c2" value="caretakerName : STRING(200) UNIQUE&#10;caretakerType : STRING(50)&#10;contactInfo : STRING(100)&#10;isActive : BOOL = true&#10;createdAt : DATE" style="shape=partialRectangle;overflow=hidden;connectable=0;fillColor=none;top=0;left=0;bottom=0;right=0;align=left;spacingLeft=4;" vertex="1" parent="care-r2"><mxGeometry width="240" height="22" as="geometry" /></mxCell>
+
+        <!-- AMENITIES -->
+        <mxCell id="amenities" value="amenities" style="shape=table;startSize=30;container=1;collapsible=0;childLayout=tableLayout;fixedRows=1;rowLines=0;fontStyle=1;align=center;fillColor=#ffe6cc;strokeColor=#d79b00;" vertex="1" parent="1">
+          <mxGeometry x="1700" y="140" width="240" height="140" as="geometry" />
+        </mxCell>
+        <mxCell id="am-r1" value="" style="shape=tableRow;horizontal=0;startSize=0;swimlaneHead=0;swimlaneBody=0;strokeColor=inherit;top=0;left=0;bottom=0;right=0;collapsible=0;dropTarget=0;fillColor=none;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;fontSize=11;" vertex="1" parent="amenities"><mxGeometry y="30" width="240" height="22" as="geometry" /></mxCell>
+        <mxCell id="am-c1" value="🔑 amenityId : INT PK AI" style="shape=partialRectangle;overflow=hidden;connectable=0;fillColor=none;top=0;left=0;bottom=0;right=0;fontStyle=5;align=left;spacingLeft=4;" vertex="1" parent="am-r1"><mxGeometry width="240" height="22" as="geometry" /></mxCell>
+        <mxCell id="am-r2" value="" style="shape=tableRow;horizontal=0;startSize=0;swimlaneHead=0;swimlaneBody=0;strokeColor=inherit;top=0;left=0;bottom=0;right=0;collapsible=0;dropTarget=0;fillColor=none;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;fontSize=11;" vertex="1" parent="amenities"><mxGeometry y="52" width="240" height="22" as="geometry" /></mxCell>
+        <mxCell id="am-c2" value="amenityName : STRING(100) UNIQUE&#10;category : STRING(50)&#10;isActive : BOOL = true&#10;createdAt : DATE" style="shape=partialRectangle;overflow=hidden;connectable=0;fillColor=none;top=0;left=0;bottom=0;right=0;align=left;spacingLeft=4;" vertex="1" parent="am-r2"><mxGeometry width="240" height="22" as="geometry" /></mxCell>
+
+        <!-- PROPERTY_AMENITIES (junction) -->
+        <mxCell id="property_amenities" value="property_amenities  (junction)" style="shape=table;startSize=30;container=1;collapsible=0;childLayout=tableLayout;fixedRows=1;rowLines=0;fontStyle=1;align=center;fillColor=#d5e8d4;strokeColor=#82b366;" vertex="1" parent="1">
+          <mxGeometry x="1700" y="340" width="280" height="110" as="geometry" />
+        </mxCell>
+        <mxCell id="pa-r1" value="" style="shape=tableRow;horizontal=0;startSize=0;swimlaneHead=0;swimlaneBody=0;strokeColor=inherit;top=0;left=0;bottom=0;right=0;collapsible=0;dropTarget=0;fillColor=none;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;fontSize=11;" vertex="1" parent="property_amenities"><mxGeometry y="30" width="280" height="22" as="geometry" /></mxCell>
+        <mxCell id="pa-c1" value="🔑 propertyId : UUID PK,FK→properties&#10;🔑 amenityId : INT PK,FK→amenities" style="shape=partialRectangle;overflow=hidden;connectable=0;fillColor=none;top=0;left=0;bottom=0;right=0;fontStyle=5;align=left;spacingLeft=4;" vertex="1" parent="pa-r1"><mxGeometry width="280" height="22" as="geometry" /></mxCell>
+        <mxCell id="pa-r2" value="" style="shape=tableRow;horizontal=0;startSize=0;swimlaneHead=0;swimlaneBody=0;strokeColor=inherit;top=0;left=0;bottom=0;right=0;collapsible=0;dropTarget=0;fillColor=none;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;fontSize=11;" vertex="1" parent="property_amenities"><mxGeometry y="52" width="280" height="22" as="geometry" /></mxCell>
+        <mxCell id="pa-c2" value="addedAt : DATE = now" style="shape=partialRectangle;overflow=hidden;connectable=0;fillColor=none;top=0;left=0;bottom=0;right=0;align=left;spacingLeft=4;" vertex="1" parent="pa-r2"><mxGeometry width="280" height="22" as="geometry" /></mxCell>
+
+        <!-- PROPERTY_CERTIFICATIONS -->
+        <mxCell id="property_certifications" value="property_certifications" style="shape=table;startSize=30;container=1;collapsible=0;childLayout=tableLayout;fixedRows=1;rowLines=0;fontStyle=1;align=center;fillColor=#ffe6cc;strokeColor=#d79b00;" vertex="1" parent="1">
+          <mxGeometry x="1700" y="500" width="280" height="110" as="geometry" />
+        </mxCell>
+        <mxCell id="cert-r1" value="" style="shape=tableRow;horizontal=0;startSize=0;swimlaneHead=0;swimlaneBody=0;strokeColor=inherit;top=0;left=0;bottom=0;right=0;collapsible=0;dropTarget=0;fillColor=none;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;fontSize=11;" vertex="1" parent="property_certifications"><mxGeometry y="30" width="280" height="22" as="geometry" /></mxCell>
+        <mxCell id="cert-c1" value="🔑 propertyId : UUID PK,FK→properties&#10;🔑 certificationType : STRING(50) PK" style="shape=partialRectangle;overflow=hidden;connectable=0;fillColor=none;top=0;left=0;bottom=0;right=0;fontStyle=5;align=left;spacingLeft=4;" vertex="1" parent="cert-r1"><mxGeometry width="280" height="22" as="geometry" /></mxCell>
+        <mxCell id="cert-r2" value="" style="shape=tableRow;horizontal=0;startSize=0;swimlaneHead=0;swimlaneBody=0;strokeColor=inherit;top=0;left=0;bottom=0;right=0;collapsible=0;dropTarget=0;fillColor=none;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;fontSize=11;" vertex="1" parent="property_certifications"><mxGeometry y="52" width="280" height="22" as="geometry" /></mxCell>
+        <mxCell id="cert-c2" value="certificationDetails : TEXT&#10;createdAt : DATE" style="shape=partialRectangle;overflow=hidden;connectable=0;fillColor=none;top=0;left=0;bottom=0;right=0;align=left;spacingLeft=4;" vertex="1" parent="cert-r2"><mxGeometry width="280" height="22" as="geometry" /></mxCell>
+
+        <!-- PROPERTY_CONNECTIVITY -->
+        <mxCell id="property_connectivity" value="property_connectivity" style="shape=table;startSize=30;container=1;collapsible=0;childLayout=tableLayout;fixedRows=1;rowLines=0;fontStyle=1;align=center;fillColor=#ffe6cc;strokeColor=#d79b00;" vertex="1" parent="1">
+          <mxGeometry x="1700" y="660" width="280" height="130" as="geometry" />
+        </mxCell>
+        <mxCell id="conn-r1" value="" style="shape=tableRow;horizontal=0;startSize=0;swimlaneHead=0;swimlaneBody=0;strokeColor=inherit;top=0;left=0;bottom=0;right=0;collapsible=0;dropTarget=0;fillColor=none;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;fontSize=11;" vertex="1" parent="property_connectivity"><mxGeometry y="30" width="280" height="22" as="geometry" /></mxCell>
+        <mxCell id="conn-c1" value="🔑 connectivityId : INT PK AI" style="shape=partialRectangle;overflow=hidden;connectable=0;fillColor=none;top=0;left=0;bottom=0;right=0;fontStyle=5;align=left;spacingLeft=4;" vertex="1" parent="conn-r1"><mxGeometry width="280" height="22" as="geometry" /></mxCell>
+        <mxCell id="conn-r2" value="" style="shape=tableRow;horizontal=0;startSize=0;swimlaneHead=0;swimlaneBody=0;strokeColor=inherit;top=0;left=0;bottom=0;right=0;collapsible=0;dropTarget=0;fillColor=none;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;fontSize=11;" vertex="1" parent="property_connectivity"><mxGeometry y="52" width="280" height="22" as="geometry" /></mxCell>
+        <mxCell id="conn-c2" value="🔗 propertyId : UUID FK→properties&#10;connectivityType : STRING(50)&#10;name : STRING(200)&#10;distanceKm : DECIMAL(10,2)&#10;createdAt : DATE" style="shape=partialRectangle;overflow=hidden;connectable=0;fillColor=none;top=0;left=0;bottom=0;right=0;align=left;spacingLeft=4;" vertex="1" parent="conn-r2"><mxGeometry width="280" height="22" as="geometry" /></mxCell>
+
+        <!-- PROPERTY_MEDIA -->
+        <mxCell id="property_media" value="property_media" style="shape=table;startSize=30;container=1;collapsible=0;childLayout=tableLayout;fixedRows=1;rowLines=0;fontStyle=1;align=center;fillColor=#ffe6cc;strokeColor=#d79b00;" vertex="1" parent="1">
+          <mxGeometry x="1700" y="840" width="280" height="130" as="geometry" />
+        </mxCell>
+        <mxCell id="med-r1" value="" style="shape=tableRow;horizontal=0;startSize=0;swimlaneHead=0;swimlaneBody=0;strokeColor=inherit;top=0;left=0;bottom=0;right=0;collapsible=0;dropTarget=0;fillColor=none;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;fontSize=11;" vertex="1" parent="property_media"><mxGeometry y="30" width="280" height="22" as="geometry" /></mxCell>
+        <mxCell id="med-c1" value="🔑 mediaId : INT PK AI" style="shape=partialRectangle;overflow=hidden;connectable=0;fillColor=none;top=0;left=0;bottom=0;right=0;fontStyle=5;align=left;spacingLeft=4;" vertex="1" parent="med-r1"><mxGeometry width="280" height="22" as="geometry" /></mxCell>
+        <mxCell id="med-r2" value="" style="shape=tableRow;horizontal=0;startSize=0;swimlaneHead=0;swimlaneBody=0;strokeColor=inherit;top=0;left=0;bottom=0;right=0;collapsible=0;dropTarget=0;fillColor=none;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;fontSize=11;" vertex="1" parent="property_media"><mxGeometry y="52" width="280" height="22" as="geometry" /></mxCell>
+        <mxCell id="med-c2" value="🔗 propertyId : UUID FK→properties&#10;mediaType : STRING(20) [photo|video]&#10;fileUrl : TEXT NOT NULL&#10;uploadedAt : DATE = now" style="shape=partialRectangle;overflow=hidden;connectable=0;fillColor=none;top=0;left=0;bottom=0;right=0;align=left;spacingLeft=4;" vertex="1" parent="med-r2"><mxGeometry width="280" height="22" as="geometry" /></mxCell>
+
+        <!-- ============================================================ -->
+        <!-- WORKFLOW / CRM CLUSTER                                       -->
+        <!-- ============================================================ -->
+
+        <!-- SALES_RELATIONSHIP -->
+        <mxCell id="sales_relationship" value="sales_relationship" style="shape=table;startSize=30;container=1;collapsible=0;childLayout=tableLayout;fixedRows=1;rowLines=0;fontStyle=1;align=center;fillColor=#e1d5e7;strokeColor=#9673a6;" vertex="1" parent="1">
+          <mxGeometry x="40" y="900" width="300" height="200" as="geometry" />
+        </mxCell>
+        <mxCell id="sr-r1" value="" style="shape=tableRow;horizontal=0;startSize=0;swimlaneHead=0;swimlaneBody=0;strokeColor=inherit;top=0;left=0;bottom=0;right=0;collapsible=0;dropTarget=0;fillColor=none;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;fontSize=11;" vertex="1" parent="sales_relationship"><mxGeometry y="30" width="300" height="22" as="geometry" /></mxCell>
+        <mxCell id="sr-c1" value="🔑 id : UUID PK" style="shape=partialRectangle;overflow=hidden;connectable=0;fillColor=none;top=0;left=0;bottom=0;right=0;fontStyle=5;align=left;spacingLeft=4;" vertex="1" parent="sr-r1"><mxGeometry width="300" height="22" as="geometry" /></mxCell>
+        <mxCell id="sr-r2" value="" style="shape=tableRow;horizontal=0;startSize=0;swimlaneHead=0;swimlaneBody=0;strokeColor=inherit;top=0;left=0;bottom=0;right=0;collapsible=0;dropTarget=0;fillColor=none;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;fontSize=11;" vertex="1" parent="sales_relationship"><mxGeometry y="52" width="300" height="22" as="geometry" /></mxCell>
+        <mxCell id="sr-c2" value="🔗 salesExecutiveId : UUID FK→users&#10;🔗 salesManagerId : UUID FK→users&#10;🔗 assignedBy : UUID FK→users&#10;🔗 unassignedBy : UUID FK→users&#10;assignedAt : DATE = now&#10;unassignedAt : DATE&#10;isActive : BOOL = true&#10;remarks : TEXT&#10;createdAt / updatedAt : DATE" style="shape=partialRectangle;overflow=hidden;connectable=0;fillColor=none;top=0;left=0;bottom=0;right=0;align=left;spacingLeft=4;" vertex="1" parent="sr-r2"><mxGeometry width="300" height="22" as="geometry" /></mxCell>
+
+        <!-- PROPERTY_MANAGER_NOTES -->
+        <mxCell id="property_manager_notes" value="property_manager_notes" style="shape=table;startSize=30;container=1;collapsible=0;childLayout=tableLayout;fixedRows=1;rowLines=0;fontStyle=1;align=center;fillColor=#e1d5e7;strokeColor=#9673a6;" vertex="1" parent="1">
+          <mxGeometry x="420" y="900" width="320" height="270" as="geometry" />
+        </mxCell>
+        <mxCell id="pmn-r1" value="" style="shape=tableRow;horizontal=0;startSize=0;swimlaneHead=0;swimlaneBody=0;strokeColor=inherit;top=0;left=0;bottom=0;right=0;collapsible=0;dropTarget=0;fillColor=none;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;fontSize=11;" vertex="1" parent="property_manager_notes"><mxGeometry y="30" width="320" height="22" as="geometry" /></mxCell>
+        <mxCell id="pmn-c1" value="🔑 noteId : UUID PK" style="shape=partialRectangle;overflow=hidden;connectable=0;fillColor=none;top=0;left=0;bottom=0;right=0;fontStyle=5;align=left;spacingLeft=4;" vertex="1" parent="pmn-r1"><mxGeometry width="320" height="22" as="geometry" /></mxCell>
+        <mxCell id="pmn-r2" value="" style="shape=tableRow;horizontal=0;startSize=0;swimlaneHead=0;swimlaneBody=0;strokeColor=inherit;top=0;left=0;bottom=0;right=0;collapsible=0;dropTarget=0;fillColor=none;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;fontSize=11;" vertex="1" parent="property_manager_notes"><mxGeometry y="52" width="320" height="22" as="geometry" /></mxCell>
+        <mxCell id="pmn-c2" value="🔗 propertyId : UUID FK→properties&#10;🔗 salesExecutiveId : UUID FK→users&#10;🔗 editedBy : UUID FK→users&#10;🔗 approvedBy : UUID FK→users&#10;🔗 createdBy : UUID FK→users&#10;🔗 updatedBy : UUID FK→users&#10;notes : TEXT NOT NULL&#10;status : ENUM(pending|approved|denied)&#10;isActive : BOOL = true&#10;isEdited : BOOL = false&#10;editedNote : TEXT&#10;createdAt / updatedAt : DATE" style="shape=partialRectangle;overflow=hidden;connectable=0;fillColor=none;top=0;left=0;bottom=0;right=0;align=left;spacingLeft=4;" vertex="1" parent="pmn-r2"><mxGeometry width="320" height="22" as="geometry" /></mxCell>
+
+        <!-- PROPERTY_INQUIRIES -->
+        <mxCell id="property_inquiries" value="property_inquiries" style="shape=table;startSize=30;container=1;collapsible=0;childLayout=tableLayout;fixedRows=1;rowLines=0;fontStyle=1;align=center;fillColor=#e1d5e7;strokeColor=#9673a6;" vertex="1" parent="1">
+          <mxGeometry x="820" y="900" width="320" height="220" as="geometry" />
+        </mxCell>
+        <mxCell id="inq-r1" value="" style="shape=tableRow;horizontal=0;startSize=0;swimlaneHead=0;swimlaneBody=0;strokeColor=inherit;top=0;left=0;bottom=0;right=0;collapsible=0;dropTarget=0;fillColor=none;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;fontSize=11;" vertex="1" parent="property_inquiries"><mxGeometry y="30" width="320" height="22" as="geometry" /></mxCell>
+        <mxCell id="inq-c1" value="🔑 id : UUID PK" style="shape=partialRectangle;overflow=hidden;connectable=0;fillColor=none;top=0;left=0;bottom=0;right=0;fontStyle=5;align=left;spacingLeft=4;" vertex="1" parent="inq-r1"><mxGeometry width="320" height="22" as="geometry" /></mxCell>
+        <mxCell id="inq-r2" value="" style="shape=tableRow;horizontal=0;startSize=0;swimlaneHead=0;swimlaneBody=0;strokeColor=inherit;top=0;left=0;bottom=0;right=0;collapsible=0;dropTarget=0;fillColor=none;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;fontSize=11;" vertex="1" parent="property_inquiries"><mxGeometry y="52" width="320" height="22" as="geometry" /></mxCell>
+        <mxCell id="inq-c2" value="🔗 propertyId : UUID FK→properties&#10;🔗 inquirerId : UUID FK→users&#10;🔗 assignedTo : UUID FK→users&#10;assignedBy : UUID&#10;inquiry : TEXT NOT NULL&#10;priority : ENUM(low|medium|high|urgent)&#10;assigned_at : DATE&#10;source : STRING(50)&#10;createdAt / updatedAt : DATE" style="shape=partialRectangle;overflow=hidden;connectable=0;fillColor=none;top=0;left=0;bottom=0;right=0;align=left;spacingLeft=4;" vertex="1" parent="inq-r2"><mxGeometry width="320" height="22" as="geometry" /></mxCell>
+
+        <!-- PROPERTY_NOTIFICATION_EVENT -->
+        <mxCell id="property_notification_event" value="property_notification_event" style="shape=table;startSize=30;container=1;collapsible=0;childLayout=tableLayout;fixedRows=1;rowLines=0;fontStyle=1;align=center;fillColor=#e1d5e7;strokeColor=#9673a6;" vertex="1" parent="1">
+          <mxGeometry x="420" y="1240" width="320" height="190" as="geometry" />
+        </mxCell>
+        <mxCell id="notif-r1" value="" style="shape=tableRow;horizontal=0;startSize=0;swimlaneHead=0;swimlaneBody=0;strokeColor=inherit;top=0;left=0;bottom=0;right=0;collapsible=0;dropTarget=0;fillColor=none;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;fontSize=11;" vertex="1" parent="property_notification_event"><mxGeometry y="30" width="320" height="22" as="geometry" /></mxCell>
+        <mxCell id="notif-c1" value="🔑 id : UUID PK" style="shape=partialRectangle;overflow=hidden;connectable=0;fillColor=none;top=0;left=0;bottom=0;right=0;fontStyle=5;align=left;spacingLeft=4;" vertex="1" parent="notif-r1"><mxGeometry width="320" height="22" as="geometry" /></mxCell>
+        <mxCell id="notif-r2" value="" style="shape=tableRow;horizontal=0;startSize=0;swimlaneHead=0;swimlaneBody=0;strokeColor=inherit;top=0;left=0;bottom=0;right=0;collapsible=0;dropTarget=0;fillColor=none;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;fontSize=11;" vertex="1" parent="property_notification_event"><mxGeometry y="52" width="320" height="22" as="geometry" /></mxCell>
+        <mxCell id="notif-c2" value="🔗 propertyId : UUID FK→properties (property_id)&#10;🔗 userId : UUID FK→users (user_id)&#10;notificationText : TEXT NOT NULL&#10;title : STRING(100)&#10;isRead : BOOL = false&#10;is_deleted : BOOL = false&#10;createdAt / updatedAt : DATE" style="shape=partialRectangle;overflow=hidden;connectable=0;fillColor=none;top=0;left=0;bottom=0;right=0;align=left;spacingLeft=4;" vertex="1" parent="notif-r2"><mxGeometry width="320" height="22" as="geometry" /></mxCell>
+
+        <!-- PROPERTY_VERIFICATION_LOGS -->
+        <mxCell id="property_verification_logs" value="property_verification_logs" style="shape=table;startSize=30;container=1;collapsible=0;childLayout=tableLayout;fixedRows=1;rowLines=0;fontStyle=1;align=center;fillColor=#e1d5e7;strokeColor=#9673a6;" vertex="1" parent="1">
+          <mxGeometry x="820" y="1180" width="320" height="170" as="geometry" />
+        </mxCell>
+        <mxCell id="ver-r1" value="" style="shape=tableRow;horizontal=0;startSize=0;swimlaneHead=0;swimlaneBody=0;strokeColor=inherit;top=0;left=0;bottom=0;right=0;collapsible=0;dropTarget=0;fillColor=none;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;fontSize=11;" vertex="1" parent="property_verification_logs"><mxGeometry y="30" width="320" height="22" as="geometry" /></mxCell>
+        <mxCell id="ver-c1" value="🔑 id : UUID PK" style="shape=partialRectangle;overflow=hidden;connectable=0;fillColor=none;top=0;left=0;bottom=0;right=0;fontStyle=5;align=left;spacingLeft=4;" vertex="1" parent="ver-r1"><mxGeometry width="320" height="22" as="geometry" /></mxCell>
+        <mxCell id="ver-r2" value="" style="shape=tableRow;horizontal=0;startSize=0;swimlaneHead=0;swimlaneBody=0;strokeColor=inherit;top=0;left=0;bottom=0;right=0;collapsible=0;dropTarget=0;fillColor=none;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;fontSize=11;" vertex="1" parent="property_verification_logs"><mxGeometry y="52" width="320" height="22" as="geometry" /></mxCell>
+        <mxCell id="ver-c2" value="🔗 propertyId : UUID FK→properties&#10;🔗 userId : UUID FK→users&#10;roleAtVerification : STRING(100) NOT NULL&#10;status : STRING(20) = verified&#10;createdAt / updatedAt : DATE&#10;UNIQUE(property_id, user_id)" style="shape=partialRectangle;overflow=hidden;connectable=0;fillColor=none;top=0;left=0;bottom=0;right=0;align=left;spacingLeft=4;" vertex="1" parent="ver-r2"><mxGeometry width="320" height="22" as="geometry" /></mxCell>
+
+        <!-- PROPERTY_LIKES -->
+        <mxCell id="property_likes" value="property_likes  (wishlist)" style="shape=table;startSize=30;container=1;collapsible=0;childLayout=tableLayout;fixedRows=1;rowLines=0;fontStyle=1;align=center;fillColor=#e1d5e7;strokeColor=#9673a6;" vertex="1" parent="1">
+          <mxGeometry x="1180" y="940" width="300" height="120" as="geometry" />
+        </mxCell>
+        <mxCell id="like-r1" value="" style="shape=tableRow;horizontal=0;startSize=0;swimlaneHead=0;swimlaneBody=0;strokeColor=inherit;top=0;left=0;bottom=0;right=0;collapsible=0;dropTarget=0;fillColor=none;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;fontSize=11;" vertex="1" parent="property_likes"><mxGeometry y="30" width="300" height="22" as="geometry" /></mxCell>
+        <mxCell id="like-c1" value="🔑 id : INT PK AI" style="shape=partialRectangle;overflow=hidden;connectable=0;fillColor=none;top=0;left=0;bottom=0;right=0;fontStyle=5;align=left;spacingLeft=4;" vertex="1" parent="like-r1"><mxGeometry width="300" height="22" as="geometry" /></mxCell>
+        <mxCell id="like-r2" value="" style="shape=tableRow;horizontal=0;startSize=0;swimlaneHead=0;swimlaneBody=0;strokeColor=inherit;top=0;left=0;bottom=0;right=0;collapsible=0;dropTarget=0;fillColor=none;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;fontSize=11;" vertex="1" parent="property_likes"><mxGeometry y="52" width="300" height="22" as="geometry" /></mxCell>
+        <mxCell id="like-c2" value="🔗 userId : UUID FK→users&#10;🔗 propertyId : UUID FK→properties&#10;createdAt / updatedAt : DATE" style="shape=partialRectangle;overflow=hidden;connectable=0;fillColor=none;top=0;left=0;bottom=0;right=0;align=left;spacingLeft=4;" vertex="1" parent="like-r2"><mxGeometry width="300" height="22" as="geometry" /></mxCell>
+
+        <!-- ============================================================ -->
+        <!-- LOGGING CLUSTER                                              -->
+        <!-- ============================================================ -->
+
+        <!-- AUDIT_LOGS -->
+        <mxCell id="audit_logs" value="audit_logs  (PostgreSQL)" style="shape=table;startSize=30;container=1;collapsible=0;childLayout=tableLayout;fixedRows=1;rowLines=0;fontStyle=1;align=center;fillColor=#f8cecc;strokeColor=#b85450;" vertex="1" parent="1">
+          <mxGeometry x="40" y="1180" width="320" height="200" as="geometry" />
+        </mxCell>
+        <mxCell id="aud-r1" value="" style="shape=tableRow;horizontal=0;startSize=0;swimlaneHead=0;swimlaneBody=0;strokeColor=inherit;top=0;left=0;bottom=0;right=0;collapsible=0;dropTarget=0;fillColor=none;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;fontSize=11;" vertex="1" parent="audit_logs"><mxGeometry y="30" width="320" height="22" as="geometry" /></mxCell>
+        <mxCell id="aud-c1" value="🔑 auditLogId : INT PK AI" style="shape=partialRectangle;overflow=hidden;connectable=0;fillColor=none;top=0;left=0;bottom=0;right=0;fontStyle=5;align=left;spacingLeft=4;" vertex="1" parent="aud-r1"><mxGeometry width="320" height="22" as="geometry" /></mxCell>
+        <mxCell id="aud-r2" value="" style="shape=tableRow;horizontal=0;startSize=0;swimlaneHead=0;swimlaneBody=0;strokeColor=inherit;top=0;left=0;bottom=0;right=0;collapsible=0;dropTarget=0;fillColor=none;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;fontSize=11;" vertex="1" parent="audit_logs"><mxGeometry y="52" width="320" height="22" as="geometry" /></mxCell>
+        <mxCell id="aud-c2" value="🔗 userId : UUID FK→users&#10;🔗 recordId : UUID (polymorphic → properties)&#10;operation : STRING(20) [INSERT|UPDATE|DELETE]&#10;entityType : STRING(50)&#10;oldValue / newValue : JSONB&#10;tableName : STRING(50)&#10;ipAddress : INET  userAgent : TEXT&#10;createdAt : DATE (immutable)" style="shape=partialRectangle;overflow=hidden;connectable=0;fillColor=none;top=0;left=0;bottom=0;right=0;align=left;spacingLeft=4;" vertex="1" parent="aud-r2"><mxGeometry width="320" height="22" as="geometry" /></mxCell>
+
+        <!-- API_LOGS (MongoDB) -->
+        <mxCell id="api_logs" value="api_logs  (MongoDB / Mongoose — separate store)" style="shape=table;startSize=30;container=1;collapsible=0;childLayout=tableLayout;fixedRows=1;rowLines=0;fontStyle=1;align=center;fillColor=#fff2cc;strokeColor=#d6b656;dashed=1;" vertex="1" parent="1">
+          <mxGeometry x="40" y="1440" width="360" height="180" as="geometry" />
+        </mxCell>
+        <mxCell id="api-r1" value="" style="shape=tableRow;horizontal=0;startSize=0;swimlaneHead=0;swimlaneBody=0;strokeColor=inherit;top=0;left=0;bottom=0;right=0;collapsible=0;dropTarget=0;fillColor=none;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;fontSize=11;" vertex="1" parent="api_logs"><mxGeometry y="30" width="360" height="22" as="geometry" /></mxCell>
+        <mxCell id="api-c1" value="🔑 _id : ObjectId PK" style="shape=partialRectangle;overflow=hidden;connectable=0;fillColor=none;top=0;left=0;bottom=0;right=0;fontStyle=5;align=left;spacingLeft=4;" vertex="1" parent="api-r1"><mxGeometry width="360" height="22" as="geometry" /></mxCell>
+        <mxCell id="api-r2" value="" style="shape=tableRow;horizontal=0;startSize=0;swimlaneHead=0;swimlaneBody=0;strokeColor=inherit;top=0;left=0;bottom=0;right=0;collapsible=0;dropTarget=0;fillColor=none;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;fontSize=11;" vertex="1" parent="api_logs"><mxGeometry y="52" width="360" height="22" as="geometry" /></mxCell>
+        <mxCell id="api-c2" value="userId : String (soft ref → users, no FK)&#10;httpMethod / endpoint : String NOT NULL&#10;requestHeaders / requestBody / queryParams : Mixed&#10;responseStatus : Number  responseBody : Mixed&#10;ipAddress / userAgent : String&#10;requestTimestamp / responseTimestamp : Date&#10;responseTimeMs : Number&#10;errorMessage / stackTrace / environment : String&#10;indexes: userId, endpoint, requestTimestamp, responseStatus" style="shape=partialRectangle;overflow=hidden;connectable=0;fillColor=none;top=0;left=0;bottom=0;right=0;align=left;spacingLeft=4;fontSize=10;" vertex="1" parent="api-r2"><mxGeometry width="360" height="22" as="geometry" /></mxCell>
+
+        <!-- ============================================================ -->
+        <!-- RELATIONSHIP EDGES                                           -->
+        <!-- crow's-foot: one (•—) to many (—<)                          -->
+        <!-- ============================================================ -->
+
+        <!-- users M:N roles via user_roles -->
+        <mxCell id="e-ur-user" style="edgeStyle=entityRelationEdgeStyle;rounded=0;html=1;endArrow=ERmany;startArrow=ERone;exitX=1;exitY=0.2;entryX=0;entryY=0.5;" edge="1" parent="1" source="users" target="user_roles"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="e-ur-role" style="edgeStyle=entityRelationEdgeStyle;rounded=0;html=1;endArrow=ERmany;startArrow=ERone;exitX=1;exitY=0.5;entryX=0;entryY=0.8;" edge="1" parent="1" source="roles" target="user_roles"><mxGeometry relative="1" as="geometry" /></mxCell>
+
+        <!-- roles M:N permissions via role_permissions -->
+        <mxCell id="e-rp-role" style="edgeStyle=entityRelationEdgeStyle;rounded=0;html=1;endArrow=ERmany;startArrow=ERone;exitX=1;exitY=0.8;entryX=0;entryY=0.3;" edge="1" parent="1" source="roles" target="role_permissions"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="e-rp-perm" style="edgeStyle=entityRelationEdgeStyle;rounded=0;html=1;endArrow=ERmany;startArrow=ERone;exitX=1;exitY=0.5;entryX=0;entryY=0.7;" edge="1" parent="1" source="permissions" target="role_permissions"><mxGeometry relative="1" as="geometry" /></mxCell>
+
+        <!-- users 1:M tokens -->
+        <mxCell id="e-tok" style="edgeStyle=entityRelationEdgeStyle;rounded=0;html=1;endArrow=ERmany;startArrow=ERone;exitX=0.5;exitY=1;entryX=0.5;entryY=0;" edge="1" parent="1" source="users" target="tokens"><mxGeometry relative="1" as="geometry" /></mxCell>
+
+        <!-- users 1:M properties (owner/broker/sales) -->
+        <mxCell id="e-prop-owner" value="owner / broker / sales" style="edgeStyle=entityRelationEdgeStyle;rounded=0;html=1;endArrow=ERmany;startArrow=ERone;exitX=1;exitY=0.4;entryX=0;entryY=0.05;fontSize=9;" edge="1" parent="1" source="users" target="properties"><mxGeometry relative="1" as="geometry" /></mxCell>
+
+        <!-- caretakers 1:M properties -->
+        <mxCell id="e-prop-care" style="edgeStyle=entityRelationEdgeStyle;rounded=0;html=1;endArrow=ERmany;startArrow=ERone;exitX=1;exitY=0.3;entryX=0;entryY=0.15;" edge="1" parent="1" source="caretakers" target="properties"><mxGeometry relative="1" as="geometry" /></mxCell>
+
+        <!-- properties M:N amenities via property_amenities -->
+        <mxCell id="e-pa-prop" style="edgeStyle=entityRelationEdgeStyle;rounded=0;html=1;endArrow=ERmany;startArrow=ERone;exitX=1;exitY=0.3;entryX=0;entryY=0.5;" edge="1" parent="1" source="properties" target="property_amenities"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="e-pa-am" style="edgeStyle=entityRelationEdgeStyle;rounded=0;html=1;endArrow=ERmany;startArrow=ERone;exitX=0.5;exitY=1;entryX=0.5;entryY=0;" edge="1" parent="1" source="amenities" target="property_amenities"><mxGeometry relative="1" as="geometry" /></mxCell>
+
+        <!-- properties 1:M certifications -->
+        <mxCell id="e-cert" style="edgeStyle=entityRelationEdgeStyle;rounded=0;html=1;endArrow=ERmany;startArrow=ERone;exitX=1;exitY=0.45;entryX=0;entryY=0.5;" edge="1" parent="1" source="properties" target="property_certifications"><mxGeometry relative="1" as="geometry" /></mxCell>
+
+        <!-- properties 1:M connectivity -->
+        <mxCell id="e-conn" style="edgeStyle=entityRelationEdgeStyle;rounded=0;html=1;endArrow=ERmany;startArrow=ERone;exitX=1;exitY=0.6;entryX=0;entryY=0.5;" edge="1" parent="1" source="properties" target="property_connectivity"><mxGeometry relative="1" as="geometry" /></mxCell>
+
+        <!-- properties 1:M media -->
+        <mxCell id="e-med" style="edgeStyle=entityRelationEdgeStyle;rounded=0;html=1;endArrow=ERmany;startArrow=ERone;exitX=1;exitY=0.75;entryX=0;entryY=0.5;" edge="1" parent="1" source="properties" target="property_media"><mxGeometry relative="1" as="geometry" /></mxCell>
+
+        <!-- users 1:M sales_relationship (exec/manager/assignedBy/unassignedBy) -->
+        <mxCell id="e-sr" value="exec / mgr / assignedBy / unassignedBy" style="edgeStyle=entityRelationEdgeStyle;rounded=0;html=1;endArrow=ERmany;startArrow=ERone;exitX=0.3;exitY=1;entryX=0.3;entryY=0;fontSize=9;" edge="1" parent="1" source="users" target="sales_relationship"><mxGeometry relative="1" as="geometry" /></mxCell>
+
+        <!-- properties 1:M manager_notes -->
+        <mxCell id="e-pmn-prop" style="edgeStyle=entityRelationEdgeStyle;rounded=0;html=1;endArrow=ERmany;startArrow=ERone;exitX=0.2;exitY=1;entryX=0.8;entryY=0;" edge="1" parent="1" source="properties" target="property_manager_notes"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <!-- users 1:M manager_notes -->
+        <mxCell id="e-pmn-user" value="creator/editor/approver/..." style="edgeStyle=entityRelationEdgeStyle;rounded=0;html=1;endArrow=ERmany;startArrow=ERone;exitX=0.7;exitY=1;entryX=0;entryY=0.5;fontSize=9;" edge="1" parent="1" source="users" target="property_manager_notes"><mxGeometry relative="1" as="geometry" /></mxCell>
+
+        <!-- properties 1:M inquiries -->
+        <mxCell id="e-inq-prop" style="edgeStyle=entityRelationEdgeStyle;rounded=0;html=1;endArrow=ERmany;startArrow=ERone;exitX=0.1;exitY=1;entryX=0.5;entryY=0;" edge="1" parent="1" source="properties" target="property_inquiries"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <!-- users 1:M inquiries (inquirer/assignedTo) -->
+        <mxCell id="e-inq-user" value="inquirer / assignedTo" style="edgeStyle=entityRelationEdgeStyle;rounded=0;html=1;endArrow=ERmany;startArrow=ERone;exitX=1;exitY=0.95;entryX=0;entryY=0.5;fontSize=9;" edge="1" parent="1" source="users" target="property_inquiries"><mxGeometry relative="1" as="geometry" /></mxCell>
+
+        <!-- properties 1:M notification_event -->
+        <mxCell id="e-notif-prop" style="edgeStyle=entityRelationEdgeStyle;rounded=0;html=1;endArrow=ERmany;startArrow=ERone;exitX=0.05;exitY=1;entryX=0.8;entryY=0;" edge="1" parent="1" source="property_manager_notes" target="property_notification_event"><mxGeometry relative="1" as="geometry" /></mxCell>
+
+        <!-- properties 1:M verification_logs -->
+        <mxCell id="e-ver-prop" style="edgeStyle=entityRelationEdgeStyle;rounded=0;html=1;endArrow=ERmany;startArrow=ERone;exitX=0.05;exitY=1;entryX=0.5;entryY=0;" edge="1" parent="1" source="property_inquiries" target="property_verification_logs"><mxGeometry relative="1" as="geometry" /></mxCell>
+
+        <!-- properties 1:M likes -->
+        <mxCell id="e-like-prop" style="edgeStyle=entityRelationEdgeStyle;rounded=0;html=1;endArrow=ERmany;startArrow=ERone;exitX=0.5;exitY=1;entryX=0.5;entryY=0;" edge="1" parent="1" source="properties" target="property_likes"><mxGeometry relative="1" as="geometry" /></mxCell>
+
+        <!-- users 1:M audit_logs -->
+        <mxCell id="e-aud-user" style="edgeStyle=entityRelationEdgeStyle;rounded=0;html=1;endArrow=ERmany;startArrow=ERone;exitX=0;exitY=0.6;entryX=0.5;entryY=0;" edge="1" parent="1" source="users" target="audit_logs"><mxGeometry relative="1" as="geometry"><Array as="points"><mxPoint x="20" y="1160" /></Array></mxGeometry></mxCell>
+
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>

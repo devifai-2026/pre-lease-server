@@ -197,7 +197,7 @@ router.delete(
 router.get(
   "/properties",
   authenticateUser,
-  // checkAdminOrSuperAdmin,
+  checkAdminOrSuperAdmin,
   adminGetAllProperties
 );
 

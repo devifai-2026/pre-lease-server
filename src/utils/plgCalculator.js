@@ -148,7 +148,8 @@ const computeStoredMetrics = (fields) => {
 
   const annualGrossRent = monthlyRent * 12;
   const annualNOI = annualGrossRent - (tax + insurance + otherCosts);
-  const clamp = (val) => Math.max(-999.99, Math.min(val, 999.99));
+  // Clamp displayed yields to a sane 0..999.99 range (never negative).
+  const clamp = (val) => Math.max(0, Math.min(val, 999.99));
 
   return {
     annualGrossRent: round2(annualGrossRent),

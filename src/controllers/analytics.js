@@ -84,6 +84,21 @@ const getAdminAnalytics = asyncHandler(async (req, res) => {
       where.createdAt = { [Op.between]: [startDate, endDate] };
     }
 
+    // Parameterized (bind) query — no string interpolation of userId/dates into SQL.
+    const replacements = {};
+    const conditions = [];
+    if (req.user.role === "Sales Executive - Property Manager") {
+      conditions.push("AND p.sales_id = :userId");
+      replacements.userId = userId;
+    }
+    if (startDate) {
+      conditions.push("AND p.created_at >= :startDate");
+      replacements.startDate = startDate.toISOString();
+    }
+    if (endDate) {
+      conditions.push("AND p.created_at <= :endDate");
+      replacements.endDate = endDate.toISOString();
+    }
     const data = await sequelize.query(`
       SELECT AVG(EXTRACT(EPOCH FROM (v.max_created_at - p.created_at)) / 86400) as avg_days
       FROM properties p
@@ -93,10 +108,8 @@ const getAdminAnalytics = asyncHandler(async (req, res) => {
         GROUP BY property_id
       ) v ON p.property_id = v.property_id
       WHERE p.is_verified = 'completed' AND p.is_active = true
-      ${req.user.role === "Sales Executive - Property Manager" ? `AND p.sales_id = '${userId}'` : ""}
-      ${startDate ? `AND p.created_at >= '${startDate.toISOString()}'` : ""}
-      ${endDate ? `AND p.created_at <= '${endDate.toISOString()}'` : ""}
-    `, { type: sequelize.QueryTypes.SELECT });
+      ${conditions.join("\n      ")}
+    `, { type: sequelize.QueryTypes.SELECT, replacements });
     return data[0]?.avg_days ? parseFloat(data[0].avg_days) : 0;
   };
 

@@ -1,5 +1,8 @@
+const { Op } = require("sequelize");
+const { sequelize } = require("../config/dbConnection");
 const { User, Role, BrokerProfile } = require("../models");
 const { autoAssignRole } = require("../utils/roleHelper");
+const { isValidEmail, isValidPhone } = require("../utils/validators");
 const asyncHandler = require("../utils/asyncHandler");
 const { sendEncodedResponse } = require("../utils/responseEncoder");
 const createAppError = require("../utils/appError");
@@ -70,6 +73,25 @@ const getBrokers = asyncHandler(async (req, res, next) => {
 
   const totalPages = Math.ceil(count / limitNum);
 
+  // Real properties-listed count per broker (was hardcoded 0).
+  const { Property } = require("../models");
+  const brokerIds = brokers.map((b) => b.userId);
+  const listingCounts = {};
+  if (brokerIds.length) {
+    const counts = await Property.findAll({
+      where: { brokerId: { [Op.in]: brokerIds }, isActive: true },
+      attributes: [
+        "brokerId",
+        [sequelize.fn("COUNT", sequelize.col("property_id")), "cnt"],
+      ],
+      group: ["brokerId"],
+      raw: true,
+    });
+    counts.forEach((c) => {
+      listingCounts[c.brokerId] = parseInt(c.cnt, 10) || 0;
+    });
+  }
+
   const formattedBrokers = brokers.map((b) => {
     const profile = b.brokerProfile;
     return {
@@ -78,14 +100,16 @@ const getBrokers = asyncHandler(async (req, res, next) => {
       agentName: `${b.firstName} ${b.lastName}`,
       email: b.email,
       mobileNumber: b.mobileNumber,
-      location: profile?.locality || "—",
-      rera: b.reraNumber || "—",
+      location: profile?.locality || null,
+      rera: b.reraNumber || null,
       tags: profile?.specializations || [],
-      propertiesListed: 0,
+      propertiesListed: listingCounts[b.userId] || 0,
       dealsClosed: profile?.dealsClosed || 0,
-      rating: 0,
-      experience: "—",
-      companyName: profile?.companyName || "—",
+      // No rating/experience data source exists yet — return null so the UI shows
+      // "N/A" rather than a fabricated 0 / "—".
+      rating: null,
+      experience: null,
+      companyName: profile?.companyName || null,
       profilePhoto: profile?.profilePhoto || null,
       hasProfile: !!profile,
     };
@@ -217,10 +241,13 @@ const getBrokerStats = asyncHandler(async (req, res, next) => {
     ],
   });
 
-  // Conversion rate could be (closed deals / total inquiries) * 100
-  // For now, let's use a mock or a simple calculation if we had closed deals field
+  // Conversion rate = closed deals / total inquiries (real computation, no mock).
   const profile = await BrokerProfile.findOne({ where: { userId } });
-  const conversionRate = profile?.dealsClosed ? "34%" : "0%"; // Mocking 34% if they have deals, or 0%
+  const dealsClosed = profile?.dealsClosed || 0;
+  const conversionRate =
+    activeDeals > 0
+      ? `${Math.round((dealsClosed / activeDeals) * 100)}%`
+      : "0%";
 
   return sendEncodedResponse(res, 200, true, "Broker stats fetched successfully", {
     activeDeals,
@@ -235,6 +262,14 @@ const contactBroker = asyncHandler(async (req, res, next) => {
 
   if (!fullName || !email || !phoneNumber || !propertyType || !budgetRange || !timeline) {
     throw createAppError("fullName, email, phoneNumber, propertyType, budgetRange, and timeline are required", 400);
+  }
+
+  // Validate the submitted contact details (was previously accepted unvalidated).
+  if (!isValidEmail(email)) {
+    throw createAppError("Invalid email format", 400);
+  }
+  if (!isValidPhone(phoneNumber)) {
+    throw createAppError("Invalid mobile number. Must be 10 digits starting with 6-9", 400);
   }
 
   const broker = await User.findOne({
@@ -253,10 +288,17 @@ const contactBroker = asyncHandler(async (req, res, next) => {
     throw createAppError("Broker not found", 404);
   }
 
-  return res.status(200).json({
-    success: true,
-    message: "Your enquiry has been sent to the broker successfully. They will reach out to you shortly.",
-    data: {
+  // NOTE: there is no messaging/persistence layer yet, so we record the contact as a
+  // notification to the broker (closest existing channel) rather than silently dropping it.
+  const { PropertyNotificationEvent } = require("../models");
+  await PropertyNotificationEvent.create({
+    userId: brokerId,
+    title: "New contact request",
+    notificationText: `${fullName} (${phoneNumber}, ${email}) is interested in ${propertyType}, budget ${budgetRange}, timeline ${timeline}.${additionalNotes ? " Notes: " + additionalNotes : ""}`,
+  }).catch(() => {}); // best-effort; do not fail the request if notif insert fails
+
+  // Use the standard encoded response (was a raw res.json — inconsistent decoder).
+  return sendEncodedResponse(res, 200, true, "Your contact request has been forwarded to the broker.", {
       brokerId,
       fullName,
       email,
@@ -265,7 +307,6 @@ const contactBroker = asyncHandler(async (req, res, next) => {
       budgetRange,
       timeline,
       additionalNotes: additionalNotes || null,
-    },
   });
 });
 

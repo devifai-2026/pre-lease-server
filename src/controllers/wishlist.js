@@ -1,4 +1,5 @@
 const { Property, PropertyLike, PropertyMedia, Amenity, Caretaker, User, PropertyVerificationLog, Role } = require("../models");
+const { getPagination } = require("../utils/validators");
 const createAppError = require("../utils/appError");
 const asyncHandler = require("../utils/asyncHandler");
 const { sendEncodedResponse } = require("../utils/responseEncoder");
@@ -74,9 +75,7 @@ const getWishlistProperties = asyncHandler(async (req, res, next) => {
   const requestBodyLog = { userId, page, limit, action: "get_wishlist" };
 
   try {
-    const pageNumber = parseInt(page);
-    const pageSize = parseInt(limit);
-    const offset = (pageNumber - 1) * pageSize;
+    const { pageNumber, pageSize, offset } = getPagination(page, limit);
 
     const { count, rows: likedProperties } = await PropertyLike.findAndCountAll({
       where: { userId },

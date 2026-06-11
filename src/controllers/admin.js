@@ -19,6 +19,7 @@ const {
   validateRequiredFields,
   isValidEmail,
   isValidPhone,
+  getPagination,
 } = require("../utils/validators");
 const createAppError = require("../utils/appError");
 const asyncHandler = require("../utils/asyncHandler");
@@ -328,8 +329,8 @@ const updateUser = asyncHandler(async (req, res, next) => {
       throw createAppError("User not found", 404);
     }
 
-    const currentRole = existingUser.roles[0];
-    if (currentRole.roleType === "client") {
+    const currentRole = existingUser.roles && existingUser.roles[0];
+    if (currentRole && currentRole.roleType === "client") {
       const isOnlyAllowedUpdate = Object.keys(req.body).every(
         (key) => key === "isActive" || key === "isVerified"
       );
@@ -400,8 +401,21 @@ const updateUser = asyncHandler(async (req, res, next) => {
     // ── END ONGOING PROCESS CHECK ──────────────────────────────────────────
 
     if (email !== undefined || mobileNumber !== undefined) {
+      // Re-validate format on update (create validates; update must too).
+      if (email !== undefined && !isValidEmail(email)) {
+        throw createAppError("Invalid email format", 400);
+      }
+      if (mobileNumber !== undefined && !isValidPhone(mobileNumber)) {
+        throw createAppError(
+          "Invalid mobile number. Must be 10 digits starting with 6-9",
+          400
+        );
+      }
+
       const orConditions = [];
       if (email && email !== existingUser.email) orConditions.push({ email });
+      if (mobileNumber && mobileNumber !== existingUser.mobileNumber)
+        orConditions.push({ mobileNumber });
 
       if (orConditions.length > 0) {
           const duplicateUser = await User.findOne({
@@ -414,6 +428,9 @@ const updateUser = asyncHandler(async (req, res, next) => {
           if (duplicateUser) {
             if (email && duplicateUser.email === email) {
               throw createAppError("Email already exists", 409);
+            }
+            if (mobileNumber && duplicateUser.mobileNumber === mobileNumber) {
+              throw createAppError("Mobile number already exists", 409);
             }
           }
       }
@@ -712,9 +729,7 @@ const getAllUsers = asyncHandler(async (req, res, next) => {
       }
     }
 
-    const pageNumber = parseInt(page);
-    const pageSize = parseInt(limit);
-    const offset = (pageNumber - 1) * pageSize;
+    const { pageNumber, pageSize, offset } = getPagination(page, limit);
 
     const { count, rows: users } = await User.findAndCountAll({
       where: whereClause,
@@ -2065,9 +2080,7 @@ const adminGetAllProperties = asyncHandler(async (req, res, next) => {
       whereClause.propertyId = { [Op.in]: propertyIds };
     }
 
-    const pageNumber = parseInt(page);
-    const pageSize = parseInt(limit);
-    const offset = (pageNumber - 1) * pageSize;
+    const { pageNumber, pageSize, offset } = getPagination(page, limit);
 
     const { count, rows: properties } = await Property.findAndCountAll({
       where: whereClause,
@@ -2401,9 +2414,7 @@ const getAdminNotifications = asyncHandler(async (req, res, next) => {
   const userId = req.user.userId;
   const { page = 1, limit = 20 } = req.query;
 
-  const pageNumber = parseInt(page);
-  const pageSize = parseInt(limit);
-  const offset = (pageNumber - 1) * pageSize;
+  const { pageNumber, pageSize, offset } = getPagination(page, limit);
 
   const requestBodyLog = {
     userId,

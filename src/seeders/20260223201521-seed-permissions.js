@@ -124,7 +124,18 @@ module.exports = {
       `SELECT setval(pg_get_serial_sequence('permissions', 'permission_id'), MAX(permission_id)) FROM permissions;`
     );
   },
-  async down(queryInterface) {
-    await queryInterface.bulkDelete("permissions", null, {});
+  async down(queryInterface, Sequelize) {
+    // Delete only the seeded permission codes, not any later-added ones.
+    const seededCodes = [
+      "PROPERTY_CREATE", "PROPERTY_VIEW", "PROPERTY_UPDATE", "PROPERTY_DELETE",
+      "USER_CREATE", "USER_VIEW", "USER_UPDATE", "USER_DELETE",
+      "ROLE_ASSIGN", "ROLE_REVOKE", "REPORT_SALES", "REPORT_ANALYTICS",
+      "SYSTEM_CONFIG", "AUDIT_LOG_VIEW", "PROPERTY_NOTES", "PROPERTY_INQUIRY_VIEW",
+    ];
+    await queryInterface.bulkDelete(
+      "permissions",
+      { code: { [Sequelize.Op.in]: seededCodes } },
+      {}
+    );
   },
 };

@@ -152,7 +152,19 @@ module.exports = {
       `SELECT setval(pg_get_serial_sequence('caretakers', 'caretaker_id'), MAX(caretaker_id)) FROM caretakers;`
     );
   },
-  async down(queryInterface) {
-    await queryInterface.bulkDelete("caretakers", null, {});
+  async down(queryInterface, Sequelize) {
+    // Delete only seeded caretakers (by name), never a blanket wipe.
+    const seededNames = [
+      "Knight Frank", "Savills", "Godrej Properties", "Prestige Group", "DLF Limited",
+      "Sobha Limited", "Brigade Group", "Puravankara Limited", "Mahindra Lifespace",
+      "Tata Housing", "Lodha Group", "Runwal Group", "Hiranandani Group",
+      "Shapoorji Pallonji", "Oberoi Realty", "Sunteck Realty", "In-house Maintenance Team",
+      "Resident Welfare Association", "Third-party Facility Management", "Self-maintained by Owner",
+    ];
+    await queryInterface.bulkDelete(
+      "caretakers",
+      { caretaker_name: { [Sequelize.Op.in]: seededNames } },
+      {}
+    );
   },
 };

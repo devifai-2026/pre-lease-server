@@ -21,6 +21,8 @@ const PropertyNotificationEvent = require("./propertyNotificationEvent");
 const PropertyVerificationLog = require("./propertyVerificationLog");
 const PropertyLike = require("./propertyLike");
 const BrokerProfile = require("./brokerProfile");
+const Blog = require("./blog");
+const SupportRequest = require("./supportRequest");
 
 // ============================================
 // USER & ROLE ASSOCIATIONS
@@ -357,6 +359,12 @@ PropertyNotificationEvent.belongsTo(User, {
   as: "user",
 });
 
+// Support requests (optionally linked to a logged-in user)
+SupportRequest.belongsTo(User, {
+  foreignKey: "user_id",
+  as: "user",
+});
+
 // ============================================
 // PROPERTY VERIFICATION LOG ASSOCIATIONS
 // ============================================
@@ -442,4 +450,6 @@ module.exports = {
   PropertyVerificationLog,
   PropertyLike,
   BrokerProfile,
+  Blog,
+  SupportRequest,
 };

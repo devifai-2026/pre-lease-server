@@ -63,9 +63,14 @@ const calculatePLG = asyncHandler(async (req, res, next) => {
   const msPerDay = 1000 * 60 * 60 * 24;
   const actualLeaseYear = (new Date() - startDate) / (msPerDay * 365);
   const leaseYearForCalc = Math.floor(actualLeaseYear);
-  const yearsLeft = n.leaseTermYears - actualLeaseYear;
-  const roundYearsLeft = Math.floor(yearsLeft);
-  const balanceMonths = Math.floor(((yearsLeft - roundYearsLeft) * 365) / 30);
+  // Clamp to >= 0 so an expired lease (start date in the past) doesn't produce
+  // negative months/years and blow up the projection.
+  const yearsLeft = Math.max(0, n.leaseTermYears - actualLeaseYear);
+  const roundYearsLeft = Math.max(0, Math.floor(yearsLeft));
+  const balanceMonths = Math.max(
+    0,
+    Math.floor(((yearsLeft - roundYearsLeft) * 365) / 30)
+  );
 
   const currentRent = n.monthlyRent * Math.pow(1 + n.rentEscalationPercent, leaseYearForCalc);
 
@@ -87,7 +92,7 @@ const calculatePLG = asyncHandler(async (req, res, next) => {
   const totalCashFlows = balanceCashFlow + nextYearsCashFlow + depositInterestCurrent + depositInterestNext;
   const totalExpenses = oneTimeCosts + maintenanceCost;
   const noi = totalCashFlows - totalExpenses;
-  const roi = noi / n.purchasePrice;
+  const roi = n.purchasePrice > 0 ? noi / n.purchasePrice : 0; // guard divide-by-zero
 
   const result = {
     inputs: {
@@ -166,9 +171,11 @@ const generateReport = asyncHandler(async (req, res, next) => {
   const msPerDay = 1000 * 60 * 60 * 24;
   const actualLeaseYear = (new Date() - startDate) / (msPerDay * 365);
   const leaseYearForCalc = Math.floor(actualLeaseYear);
-  const yearsLeft = n.leaseTermYears - actualLeaseYear;
-  const roundYearsLeft = Math.floor(yearsLeft);
-  const balanceMonths = Math.floor(((yearsLeft - roundYearsLeft) * 365) / 30);
+  // Clamp to >= 0 so an expired lease (start date in the past) doesn't produce
+  // negative months/years and blow up the projection.
+  const yearsLeft = Math.max(0, n.leaseTermYears - actualLeaseYear);
+  const roundYearsLeft = Math.max(0, Math.floor(yearsLeft));
+  const balanceMonths = Math.max(0, Math.floor(((yearsLeft - roundYearsLeft) * 365) / 30));
 
   const currentRent = n.monthlyRent * Math.pow(1 + n.rentEscalationPercent, leaseYearForCalc);
   const oneTimeCosts = n.propertyTax + n.insurance + n.stampDutyPercent * n.purchasePrice + n.legalFees + n.brokerage + n.otherOneTimeCosts;
@@ -180,7 +187,7 @@ const generateReport = asyncHandler(async (req, res, next) => {
   const totalCashFlows = balanceCashFlow + nextYearsCashFlow + depositInterestCurrent + depositInterestNext;
   const totalExpenses = oneTimeCosts + maintenanceCost;
   const noi = totalCashFlows - totalExpenses;
-  const roi = noi / n.purchasePrice;
+  const roi = n.purchasePrice > 0 ? noi / n.purchasePrice : 0; // guard divide-by-zero
 
   // Build 10-year projections
   const annualRecurringExpenses = n.propertyTax + n.insurance + (n.maintenancePerSqFtPerMonth * n.carpetArea * 12);

@@ -7,55 +7,10 @@ const { sequelize } = require("./config/dbConnection");
 // testDbConnection();
 const app = express();
 
-// ── Auto-migration: ensure deleted_at column exists on users ───────────────
-(async () => {
-  try {
-    await sequelize.query(
-      `ALTER TABLE users ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ DEFAULT NULL`
-    );
-    console.log("✓ Migration: deleted_at column ensured on users table");
-  } catch (e) {
-    console.warn("Migration warning (deleted_at):", e.message);
-  }
-})();
-
-// ── Auto-migration: ensure 'denied' value exists in note_status enum ────────
-(async () => {
-  try {
-    await sequelize.query(
-      `ALTER TYPE note_status ADD VALUE IF NOT EXISTS 'denied'`
-    );
-    console.log("✓ Migration: 'denied' added to note_status enum");
-  } catch (e) {
-    console.warn("Migration warning (note_status enum):", e.message);
-  }
-})();
-
-// ── Auto-migration: ensure broker_profiles table exists ──────────────────────
-(async () => {
-  try {
-    await sequelize.query(`
-      CREATE TABLE IF NOT EXISTS broker_profiles (
-        profile_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-        user_id UUID NOT NULL UNIQUE REFERENCES users(user_id) ON DELETE CASCADE,
-        company_name VARCHAR(255),
-        locality VARCHAR(255),
-        specializations TEXT,
-        deals_closed INTEGER DEFAULT 0,
-        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-      )
-    `);
-    console.log("✓ Migration: broker_profiles table ensured");
-    // Add profile_photo column if it doesn't exist yet
-    await sequelize.query(
-      `ALTER TABLE broker_profiles ADD COLUMN IF NOT EXISTS profile_photo TEXT`
-    );
-    console.log("✓ Migration: profile_photo column ensured on broker_profiles");
-  } catch (e) {
-    console.warn("Migration warning (broker_profiles):", e.message);
-  }
-})();
+// NOTE: schema changes (users.deleted_at, note_status 'denied', broker_profiles +
+// profile_photo) are handled by migration 20260601000003-consolidate-boot-alters.js
+// — they used to run as ad-hoc ALTERs on every boot here (DEAD-06). Run `npm run
+// migrate` (sequelize-cli db:migrate) on deploy instead.
 
 const NODE_ENV = process.env.NODE_ENV || "development";
 app.use(
@@ -85,7 +40,7 @@ if (NODE_ENV === "development") {
 } else {
   app.use(morgan("combined"));
 }
-console.log(process.env.DATABASE_URL, "DATABASE_URL");
+// Never log the DB connection string (it contains credentials).
 app.get("/health", (req, res) => {
   res.status(200).json({
     status: "ok",

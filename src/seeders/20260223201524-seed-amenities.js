@@ -198,7 +198,21 @@ module.exports = {
       `SELECT setval(pg_get_serial_sequence('amenities', 'amenity_id'), MAX(amenity_id)) FROM amenities;`
     );
   },
-  async down(queryInterface) {
-    await queryInterface.bulkDelete("amenities", null, {});
+  async down(queryInterface, Sequelize) {
+    // Delete only seeded amenities (by name), never a blanket wipe.
+    const seededNames = [
+      "Swimming Pool", "Gymnasium", "Club House", "Children's Play Area", "Jogging Track",
+      "Tennis Court", "Basketball Court", "Badminton Court", "Indoor Games Room", "Party Hall",
+      "Multipurpose Hall", "Yoga/Meditation Room", "Steam/Sauna Room", "Spa", "Landscaped Gardens",
+      "Amphitheater", "Library", "Business Center", "Conference Room", "Visitor Parking",
+      "EV Charging Station", "Security/CCTV", "Fire Safety System", "Intercom Facility",
+      "Wi-Fi Connectivity", "Rainwater Harvesting", "Solar Panels", "Waste Management",
+      "Power Backup", "Water Storage", "Elevator/Lift",
+    ];
+    await queryInterface.bulkDelete(
+      "amenities",
+      { amenity_name: { [Sequelize.Op.in]: seededNames } },
+      {}
+    );
   },
 };

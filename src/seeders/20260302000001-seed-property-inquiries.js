@@ -122,10 +122,13 @@ module.exports = {
     );
   },
 
-  async down(queryInterface) {
-    // Remove all seeded inquiries (those without an assigned dealer, seeded ones)
-    // Since we can't know exact IDs, we do a broad clean-up of unassigned seed data.
-    // In production, prefer a more targeted rollback.
-    await queryInterface.bulkDelete("property_inquiries", {}, {});
+  async down(queryInterface, Sequelize) {
+    // Delete ONLY rows whose inquiry text matches a seeded template (never a blanket
+    // wipe — that would delete real user inquiries too).
+    await queryInterface.bulkDelete(
+      "property_inquiries",
+      { inquiry: { [Sequelize.Op.in]: INQUIRY_TEXTS } },
+      {}
+    );
   },
 };
