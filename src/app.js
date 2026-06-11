@@ -27,7 +27,12 @@ app.use(
       "https://prelease-admin-qa.netlify.app",
       /^https:\/\/p-grid-admin(-.*)?\.vercel\.app$/,
       /^https:\/\/p-grid-client(-.*)?\.vercel\.app$/,
-      process.env.CORS_ORIGIN,
+      // Render static sites (consumer + admin frontends)
+      /^https:\/\/.*\.onrender\.com$/,
+      // Allow extra origins (comma-separated) via env without a code change.
+      ...(process.env.CORS_ORIGIN
+        ? process.env.CORS_ORIGIN.split(",").map((o) => o.trim())
+        : []),
     ].filter(Boolean),
     credentials: true,
   })
