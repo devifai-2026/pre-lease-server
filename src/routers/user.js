@@ -18,35 +18,14 @@ const { authenticateUser } = require("../middlewares/auth");
 // ============================================
 // RATE LIMITERS FOR AUTH ROUTES
 // ============================================
-// Active in staging/production; disabled in development so local QA isn't throttled.
+// Rate limiting is currently DISABLED on auth routes (no-op) so legitimate
+// users aren't throttled during OTP resends / retries. To re-enable, restore
+// the rateLimit() config below and gate it on `!isDevelopment`.
 const noopLimiter = (req, res, next) => next();
 const isDevelopment = process.env.NODE_ENV === "development";
 
-const authRateLimiter = isDevelopment
-  ? noopLimiter
-  : rateLimit({
-      windowMs: 15 * 60 * 1000, // 15 minutes
-      max: 10, // 10 requests per window per IP
-      standardHeaders: true,
-      legacyHeaders: false,
-      message: {
-        success: false,
-        message: "Too many requests, please try again after 15 minutes",
-      },
-    });
-
-const refreshRateLimiter = isDevelopment
-  ? noopLimiter
-  : rateLimit({
-      windowMs: 15 * 60 * 1000, // 15 minutes
-      max: 30, // 30 requests per window per IP (higher since it's automated)
-      standardHeaders: true,
-      legacyHeaders: false,
-      message: {
-        success: false,
-        message: "Too many refresh requests, please try again later",
-      },
-    });
+const authRateLimiter = noopLimiter;
+const refreshRateLimiter = noopLimiter;
 
 // ============================================
 // PUBLIC ROUTES (No Authentication Required)

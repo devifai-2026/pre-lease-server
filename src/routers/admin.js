@@ -29,16 +29,8 @@ const {
   checkRole,
 } = require("../middlewares/auth");
 
-const superAdminRateLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 5, // 5 attempts per window per IP
-  standardHeaders: true,
-  legacyHeaders: false,
-  message: {
-    success: false,
-    message: "Too many requests, please try again after 15 minutes",
-  },
-});
+// Rate limiting DISABLED (no-op). To re-enable, restore the rateLimit() config.
+const superAdminRateLimiter = (req, res, next) => next();
 
 // ============================================
 // ADMIN USER MANAGEMENT ROUTES
