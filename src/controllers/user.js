@@ -4,7 +4,6 @@ const { autoAssignRole } = require("../utils/roleHelper");
 const {
   isValidEmail,
   isValidPhone,
-  isValidReraNumber,
   validateRequiredFields,
   getPagination,
 } = require("../utils/validators");
@@ -168,7 +167,7 @@ const signup = asyncHandler(async (req, res, next) => {
     // ── Broker-specific required fields ───────────────────────────────────────
     if (joinType === "broker") {
       const brokerMissing = validateRequiredFields(
-        ["reraNumber", "locality", "specializations", "dealsClosed"],
+        ["locality", "specializations", "dealsClosed"],
         req.body
       );
       if (brokerMissing.length > 0) {
@@ -177,13 +176,8 @@ const signup = asyncHandler(async (req, res, next) => {
           400
         );
       }
-      // Validate RERA format (validator existed but was never called).
-      if (!isValidReraNumber(reraNumber)) {
-        throw createAppError(
-          "Invalid RERA number. Expected format: XXRERA/<alphanumeric> (e.g. MHRERA/A1234)",
-          400
-        );
-      }
+      // RERA number is optional at signup and accepted in any format
+      // (formats vary widely by state), so no format validation is applied.
     }
 
     // ── Verify OTP ────────────────────────────────────────────────────────────
