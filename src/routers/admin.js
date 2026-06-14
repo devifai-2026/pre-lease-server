@@ -54,15 +54,22 @@ router.post(
 
 /**
  * @route   GET /api/v1/admin/users
- * @desc    Get all users (Accessible by all authenticated users)
+ * @desc    Get all users
+ * @access  Admin, Super Admin (backs the Users & Roles tab)
  */
-router.get("/users", authenticateUser, getAllUsers);
+router.get("/users", authenticateUser, checkAdminOrSuperAdmin, getAllUsers);
 
 /**
  * @route   GET /api/v1/admin/users/:userId
  * @desc    Get single user by ID
+ * @access  Admin, Super Admin
  */
-router.get("/users/:userId", authenticateUser, getUserById);
+router.get(
+  "/users/:userId",
+  authenticateUser,
+  checkAdminOrSuperAdmin,
+  getUserById
+);
 
 /**
  * @route   PUT /api/v1/admin/users/:userId

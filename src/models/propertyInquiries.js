@@ -44,6 +44,20 @@ const PropertyInquiry = sequelize.define(
       defaultValue: "investor",
       field: "inquirer_role_type",
     },
+    // Current pipeline stage (FK -> inquiry_stages). Null until first set;
+    // defaults to the first stage on assignment/seed.
+    stageId: {
+      type: DataTypes.UUID,
+      allowNull: true,
+      field: "stage_id",
+    },
+    // When the assigned dealer last opened this enquiry's message thread.
+    // Used to badge enquiries that have newer client (broker/investor)
+    // messages the dealer hasn't seen yet. Null = never opened.
+    dealerLastSeenAt: {
+      type: DataTypes.DATE,
+      allowNull: true,
+    },
   },
   {
     tableName: "property_inquiries",

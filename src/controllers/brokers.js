@@ -73,10 +73,13 @@ const getBrokers = asyncHandler(async (req, res, next) => {
 
   const totalPages = Math.ceil(count / limitNum);
 
-  // Real properties-listed count per broker (was hardcoded 0).
+  // Real per-broker counts (were previously static):
+  //  - propertiesListed: all active properties the broker listed.
+  //  - dealsClosed: properties that reached the terminal "final closure" stage.
   const { Property } = require("../models");
   const brokerIds = brokers.map((b) => b.userId);
   const listingCounts = {};
+  const dealsClosedCounts = {};
   if (brokerIds.length) {
     const counts = await Property.findAll({
       where: { brokerId: { [Op.in]: brokerIds }, isActive: true },
@@ -89,6 +92,23 @@ const getBrokers = asyncHandler(async (req, res, next) => {
     });
     counts.forEach((c) => {
       listingCounts[c.brokerId] = parseInt(c.cnt, 10) || 0;
+    });
+
+    const closed = await Property.findAll({
+      where: {
+        brokerId: { [Op.in]: brokerIds },
+        isActive: true,
+        sellingStatus: "final closure",
+      },
+      attributes: [
+        "brokerId",
+        [sequelize.fn("COUNT", sequelize.col("property_id")), "cnt"],
+      ],
+      group: ["brokerId"],
+      raw: true,
+    });
+    closed.forEach((c) => {
+      dealsClosedCounts[c.brokerId] = parseInt(c.cnt, 10) || 0;
     });
   }
 
@@ -104,7 +124,9 @@ const getBrokers = asyncHandler(async (req, res, next) => {
       rera: b.reraNumber || null,
       tags: profile?.specializations || [],
       propertiesListed: listingCounts[b.userId] || 0,
-      dealsClosed: profile?.dealsClosed || 0,
+      // Dynamic: count of the broker's properties that reached "final closure".
+      // No longer uses the self-reported profile value.
+      dealsClosed: dealsClosedCounts[b.userId] || 0,
       // No rating/experience data source exists yet — return null so the UI shows
       // "N/A" rather than a fabricated 0 / "—".
       rating: null,

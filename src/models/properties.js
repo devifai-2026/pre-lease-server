@@ -334,6 +334,13 @@ const Property = sequelize.define(
       allowNull: true,
     },
 
+    // Optional FAQs for the listing — array of { question, answer } objects.
+    faqs: {
+      type: DataTypes.JSONB,
+      allowNull: true,
+      defaultValue: [],
+    },
+
     // ========== FINANCIAL ANALYTICS ==========
     sellingPrice: {
       type: DataTypes.DECIMAL(15, 2),

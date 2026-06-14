@@ -1,0 +1,212 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>P-Lease-Grid — Work & UX Audit Report</title>
+<style>
+  :root {
+    --red: #EE2529;
+    --ink: #1e293b;
+    --muted: #64748b;
+    --line: #e5e7eb;
+    --bg: #f8fafc;
+    --hi: #dc2626;
+    --med: #d97706;
+    --low: #2563eb;
+    --ok: #16a34a;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--ink);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    line-height: 1.55;
+  }
+  header {
+    background: linear-gradient(135deg, #0f172a, #1e293b);
+    color: #fff; padding: 40px 32px;
+  }
+  header h1 { margin: 0 0 6px; font-size: 28px; }
+  header p { margin: 0; color: #cbd5e1; font-size: 14px; }
+  .wrap { max-width: 980px; margin: 0 auto; padding: 28px 32px 64px; }
+  h2 {
+    font-size: 20px; margin: 38px 0 14px; padding-bottom: 8px;
+    border-bottom: 2px solid var(--red);
+  }
+  h3 { font-size: 15px; margin: 22px 0 8px; color: var(--ink); }
+  .meta { display: flex; gap: 24px; flex-wrap: wrap; margin-top: 16px; font-size: 13px; color: #94a3b8; }
+  .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px,1fr)); gap: 12px; margin: 16px 0; }
+  .card {
+    background: #fff; border: 1px solid var(--line); border-radius: 12px;
+    padding: 16px; text-align: center;
+  }
+  .card .n { font-size: 26px; font-weight: 800; color: var(--red); }
+  .card .l { font-size: 11px; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); margin-top: 4px; }
+  .feat { background:#fff; border:1px solid var(--line); border-radius:12px; padding:4px 18px; margin:10px 0; }
+  .feat summary { cursor: pointer; font-weight: 700; padding: 12px 0; font-size: 15px; }
+  .feat summary::marker { color: var(--red); }
+  .feat ul { margin: 4px 0 14px; padding-left: 20px; }
+  .feat li { margin: 5px 0; font-size: 14px; }
+  code { background:#f1f5f9; padding:1px 6px; border-radius:5px; font-size: 12.5px; color:#0f172a; }
+  table { width:100%; border-collapse: collapse; background:#fff; border:1px solid var(--line); border-radius:12px; overflow:hidden; margin: 10px 0 24px; font-size: 13.5px; }
+  th { background:#f1f5f9; text-align:left; padding:10px 14px; font-size:11px; text-transform:uppercase; letter-spacing:.06em; color:var(--muted); }
+  td { padding:11px 14px; border-top:1px solid #f1f5f9; vertical-align: top; }
+  .sev { font-weight:800; font-size:11px; text-transform:uppercase; padding:2px 8px; border-radius:999px; white-space:nowrap; }
+  .sev.hi { background:#fee2e2; color:var(--hi); }
+  .sev.med { background:#fef3c7; color:var(--med); }
+  .sev.low { background:#dbeafe; color:var(--low); }
+  .pill { display:inline-block; font-size:11px; font-weight:700; padding:2px 9px; border-radius:999px; }
+  .pill.done { background:#dcfce7; color:var(--ok); }
+  .pill.app { background:#f1f5f9; color:var(--muted); }
+  .note { background:#fffbeb; border:1px solid #fde68a; border-radius:10px; padding:12px 16px; font-size:13px; color:#92400e; margin:14px 0; }
+  footer { text-align:center; color:#94a3b8; font-size:12px; padding:24px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>P-Lease-Grid — Work &amp; UX Audit Report</h1>
+  <p>Pre-leased commercial real-estate marketplace + sales CRM · consumer app, admin dashboard, backend</p>
+  <div class="meta">
+    <span>Generated: 14 Jun 2026</span>
+    <span>Apps: propertyGridMasterApp · p-grid_admin · pre-lease-server</span>
+  </div>
+</header>
+
+<div class="wrap">
+
+  <h2>Summary</h2>
+  <div class="cards">
+    <div class="card"><div class="n">9</div><div class="l">Features shipped</div></div>
+    <div class="card"><div class="n">5</div><div class="l">DB migrations run</div></div>
+    <div class="card"><div class="n">6</div><div class="l">High UX flaws found</div></div>
+    <div class="card"><div class="n">3</div><div class="l">Apps touched</div></div>
+  </div>
+  <p>This report covers the features delivered in this engagement and a verified UX/correctness audit of both
+  front-end apps. All findings below were confirmed against the source (file:line), not assumed.</p>
+
+  <h2>Features Delivered <span class="pill done">verified building</span></h2>
+
+  <details class="feat" open>
+    <summary>1 · User &amp; Role management (admin)</summary>
+    <ul>
+      <li>MUI Users &amp; Roles page; create user with role, edit, delete.</li>
+      <li><b>Deactivate/activate</b> toggle — flips <code>isActive</code> (backend blocks login for inactive users).</li>
+    </ul>
+  </details>
+
+  <details class="feat">
+    <summary>2 · Property listing fixes (City "Others", FAQs end-to-end)</summary>
+    <ul>
+      <li>City dropdown now offers an <b>"Others"</b> free-text option (saves the typed value).</li>
+      <li><b>FAQs</b> were collected but never saved — built the full pipeline: <code>faqs</code> JSONB column + migration, save on create/update, send from both forms, display in admin + consumer (FAQ tab/accordion).</li>
+      <li>Admin property detail: removed hardcoded Connectivity / Demand Drivers / Mgmt-fees placeholders → bound to real data; show all media; fixed ₹ "L" (lakhs) formatting.</li>
+    </ul>
+  </details>
+
+  <details class="feat">
+    <summary>3 · Legal pages (Terms &amp; Privacy)</summary>
+    <ul>
+      <li>Product-aligned T&amp;C + Privacy pages; agree-checkbox links open them in a new tab (admin + consumer).</li>
+    </ul>
+  </details>
+
+  <details class="feat">
+    <summary>4 · Owner / broker dashboard fixes</summary>
+    <ul>
+      <li>Own-listing card: hide "Enquire", show "Your listing"; <b>"Awaiting Confirmation"</b> badge for pending-verification listings (moved off the header to avoid overlap).</li>
+      <li>Per-property <b>"new note"</b> badge for owners; dashboard alert.</li>
+      <li>Broker "Deals Closed" made <b>dynamic</b> (was a static self-reported value).</li>
+    </ul>
+  </details>
+
+  <details class="feat">
+    <summary>5 · Login redirect + OTP fixes (consumer)</summary>
+    <ul>
+      <li>Post-login navigates to the intended destination (was stuck after OTP).</li>
+      <li>Enquiry form: <b>no OTP for a logged-in user's own number</b>; OTP only if the number changes; removed the redundant empty OTP boxes.</li>
+    </ul>
+  </details>
+
+  <details class="feat">
+    <summary>6 · Auto-assign + enquiry lifecycle</summary>
+    <ul>
+      <li>Enquiry auto-assign restricted to <b>Client Dealers only</b> (was wrongly including Sales Managers); <b>load-balances</b> to the least-loaded dealer on every new enquiry; defaults to the <b>"New"</b> stage. Backfilled one mis-assigned record.</li>
+      <li><b>Configurable pipeline stages</b> (admin Advanced Settings): add/edit/reorder/deactivate, with a <b>required score</b> per stage.</li>
+      <li>Per-enquiry stage move (+ note), timeline, and an <b>Enquiry Report</b> with filters, history, score &amp; CSV export.</li>
+    </ul>
+  </details>
+
+  <details class="feat">
+    <summary>7 · Enquiry conversation (dealer ↔ client, admin-approved)</summary>
+    <ul>
+      <li>Two-way thread: dealer message → <b>admin approval</b> → client sees it; client (broker/investor) replies directly.</li>
+      <li>Admin <b>Pending Approvals</b> queue + live sidebar count badge; Messages tab on the property detail &amp; assigned-enquiry views.</li>
+    </ul>
+  </details>
+
+  <details class="feat">
+    <summary>8 · Notifications surfaced (consumer)</summary>
+    <ul>
+      <li>Header <b>bell</b> with unread count (was unreachable); clicking a notification opens <code>/my-dashboard</code> with the right tab auto-selected.</li>
+      <li>Per-enquiry <b>update badge</b> when there's a new approved message.</li>
+    </ul>
+  </details>
+
+  <details class="feat">
+    <summary>9 · Admin UX</summary>
+    <ul>
+      <li>"View Property" on assigned enquiries; manager name in the Enquiry Report; removed the fake "Interactive Map View" placeholder; deduped repeated dashboard task notifications.</li>
+    </ul>
+  </details>
+
+  <h2>UX Audit — High Severity <span class="pill app">verified</span></h2>
+  <p>These are concrete broken/misleading items confirmed in source. They mislead users into thinking an action
+  succeeded, or show fake data.</p>
+
+  <h3>Consumer app — <code>propertyGridMasterApp</code></h3>
+  <table>
+    <tr><th>Where</th><th>Issue</th><th>Sev</th></tr>
+    <tr><td><code>ContactForm.tsx:65</code></td><td>Contact form validates then only <code>console.log</code>s ("add submission logic here") — never submits to the API.</td><td><span class="sev hi">High</span></td></tr>
+    <tr><td><code>ContactBrokerScreen.tsx:638</code></td><td>"Quick Call" button (<code>Call +91 1800-XXX-XXXX</code>) is a <code>TouchableOpacity</code> with no <code>onPress</code> — placeholder number, does nothing.</td><td><span class="sev hi">High</span></td></tr>
+    <tr><td><code>ContactBrokerScreen.tsx:660</code></td><td>"Email Us" button has no <code>onPress</code> — inert.</td><td><span class="sev hi">High</span></td></tr>
+    <tr><td><code>EnquiriesScreen.tsx:362</code></td><td>Property "Description" is a hardcoded "retail diversification strategy" blurb — same text for every property.</td><td><span class="sev hi">High</span></td></tr>
+  </table>
+
+  <h3>Admin app — <code>p-grid_admin</code></h3>
+  <table>
+    <tr><th>Where</th><th>Issue</th><th>Sev</th></tr>
+    <tr><td><code>Profile.jsx:171</code></td><td>Avatar camera/upload button has no <code>onClick</code>.</td><td><span class="sev hi">High</span></td></tr>
+    <tr><td><code>Profile.jsx:295</code></td><td>"Update Settings" button has no <code>onClick</code>.</td><td><span class="sev hi">High</span></td></tr>
+    <tr><td><code>Profile.jsx:406</code></td><td>"Devices" button has no <code>onClick</code>.</td><td><span class="sev hi">High</span></td></tr>
+    <tr><td><code>Profile.jsx:290/346/358</code></td><td>"Not available" placeholders presented as real (unimplemented) features.</td><td><span class="sev hi">High</span></td></tr>
+    <tr><td><code>PropertyGrid.jsx:~350</code></td><td>Button with an empty handler body — looks clickable, does nothing.</td><td><span class="sev hi">High</span></td></tr>
+  </table>
+
+  <h2>UX Audit — Medium / Low (not yet fixed)</h2>
+  <table>
+    <tr><th>Area</th><th>Issue</th><th>Sev</th></tr>
+    <tr><td>Consumer · inputs</td><td>Placeholder name "Rohit Sharma" in a real input field.</td><td><span class="sev med">Med</span></td></tr>
+    <tr><td>Consumer · loading</td><td>Missing spinners on Explore featured, Notes, PropertyDetails fetches.</td><td><span class="sev med">Med</span></td></tr>
+    <tr><td>Consumer · layout</td><td>Absolute/fixed elements (Calculators hero, CompareBanner FAB) can overlap on some sizes.</td><td><span class="sev med">Med</span></td></tr>
+    <tr><td>Admin · empty states</td><td>SalesBoard / Enquiry / HelpandSupport can't distinguish "no data" from "load failed / search empty".</td><td><span class="sev med">Med</span></td></tr>
+    <tr><td>Admin · forms</td><td>AddProperty steps lack inline validation feedback.</td><td><span class="sev med">Med</span></td></tr>
+    <tr><td>Admin · profile</td><td>Hardcoded "Professional Note" identical on every profile.</td><td><span class="sev med">Med</span></td></tr>
+    <tr><td>Both · misc</td><td>Footer social links TODO; <code>togggleFaq</code> typo; minor badge z-index.</td><td><span class="sev low">Low</span></td></tr>
+  </table>
+
+  <div class="note">
+    <b>Status:</b> High-severity fixes were approved and are in progress (verification done; this report was generated mid-fix on request).
+    Medium/Low items are reported only — no code changed for them yet.
+  </div>
+
+  <h2>Notes</h2>
+  <ul>
+    <li>All DB migrations (users/roles, faqs, inquiry stages + score, status history, messages) were run against the hosted Supabase database.</li>
+    <li>Roles are cleanly split: <b>enquiries → Client Dealers</b>, <b>property listings → Property Managers</b>.</li>
+    <li>Dealer↔client messages are <b>admin-approved</b> before the client sees them.</li>
+  </ul>
+
+</div>
+<footer>P-Lease-Grid · internal progress &amp; audit report</footer>
+</body>
+</html>

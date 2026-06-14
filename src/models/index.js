@@ -17,12 +17,16 @@ const AuditLog = require("./auditLog");
 const SalesRelationship = require("./salesRelationship");
 const PropertyManagerNotes = require("./propertyManagerNotes");
 const PropertyInquiry = require("./propertyInquiries");
+const InquiryStage = require("./inquiryStage");
+const InquiryStatusHistory = require("./inquiryStatusHistory");
+const InquiryMessage = require("./inquiryMessage");
 const PropertyNotificationEvent = require("./propertyNotificationEvent");
 const PropertyVerificationLog = require("./propertyVerificationLog");
 const PropertyLike = require("./propertyLike");
 const BrokerProfile = require("./brokerProfile");
 const Blog = require("./blog");
 const SupportRequest = require("./supportRequest");
+const ContactLead = require("./contactLead");
 
 // ============================================
 // USER & ROLE ASSOCIATIONS
@@ -339,6 +343,48 @@ PropertyInquiry.belongsTo(User, {
   as: "clientDealer",
 });
 
+// InquiryStage <-> PropertyInquiry (current stage)
+InquiryStage.hasMany(PropertyInquiry, {
+  foreignKey: "stageId",
+  as: "inquiries",
+});
+PropertyInquiry.belongsTo(InquiryStage, {
+  foreignKey: "stageId",
+  as: "stage",
+});
+
+// PropertyInquiry -> InquiryStatusHistory (timeline)
+PropertyInquiry.hasMany(InquiryStatusHistory, {
+  foreignKey: "inquiryId",
+  as: "statusHistory",
+});
+InquiryStatusHistory.belongsTo(PropertyInquiry, {
+  foreignKey: "inquiryId",
+  as: "inquiry",
+});
+InquiryStatusHistory.belongsTo(InquiryStage, {
+  foreignKey: "stageId",
+  as: "stage",
+});
+InquiryStatusHistory.belongsTo(User, {
+  foreignKey: "changedBy",
+  as: "changedByUser",
+});
+
+// PropertyInquiry -> InquiryMessage (conversation thread)
+PropertyInquiry.hasMany(InquiryMessage, {
+  foreignKey: "inquiryId",
+  as: "messages",
+});
+InquiryMessage.belongsTo(PropertyInquiry, {
+  foreignKey: "inquiryId",
+  as: "inquiry",
+});
+InquiryMessage.belongsTo(User, {
+  foreignKey: "senderId",
+  as: "sender",
+});
+
 Property.hasMany(PropertyNotificationEvent, {
   foreignKey: "property_id",
   as: "notificationEvents",
@@ -361,6 +407,12 @@ PropertyNotificationEvent.belongsTo(User, {
 
 // Support requests (optionally linked to a logged-in user)
 SupportRequest.belongsTo(User, {
+  foreignKey: "user_id",
+  as: "user",
+});
+
+// Contact-us leads (optionally linked to a logged-in user)
+ContactLead.belongsTo(User, {
   foreignKey: "user_id",
   as: "user",
 });
@@ -446,10 +498,14 @@ module.exports = {
   SalesRelationship,
   PropertyManagerNotes,
   PropertyInquiry,
+  InquiryStage,
+  InquiryStatusHistory,
+  InquiryMessage,
   PropertyNotificationEvent,
   PropertyVerificationLog,
   PropertyLike,
   BrokerProfile,
   Blog,
   SupportRequest,
+  ContactLead,
 };

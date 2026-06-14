@@ -12,6 +12,7 @@ const brokers = require("./brokers");
 const calculator = require("./calculator");
 const blog = require("./blog");
 const supportRequest = require("./supportRequest");
+const contactLead = require("./contactLead");
 
 router.use(user);
 router.use(property);
@@ -23,5 +24,6 @@ router.use(rolePermission);
 router.use(calculator);
 router.use(blog);
 router.use(supportRequest);
+router.use(contactLead);
 
 module.exports = router;

@@ -280,12 +280,26 @@ const getAdminAnalytics = asyncHandler(async (req, res) => {
     });
   }
 
-  // 7. Quick Updates
-  const quickUpdates = await PropertyNotificationEvent.findAll({
-    limit: 10,
+  // 7. Quick Updates — scoped to THIS user's notifications, and deduped by
+  // property. A single property-add fans out into one event per recipient, so
+  // without dedup the feed shows the same property repeated. Fetch a larger
+  // window, then keep only the most recent event per property.
+  const recentEvents = await PropertyNotificationEvent.findAll({
+    where: { userId },
+    limit: 50,
     order: [["createdAt", "DESC"]],
     include: [{ model: Property, as: "property", attributes: ["propertyId", "microMarket", "city"] }]
   });
+
+  const seenProperties = new Set();
+  const quickUpdates = [];
+  for (const event of recentEvents) {
+    const key = event.propertyId || event.id;
+    if (seenProperties.has(key)) continue;
+    seenProperties.add(key);
+    quickUpdates.push(event);
+    if (quickUpdates.length >= 10) break;
+  }
 
   sendEncodedResponse(res, 200, true, "Analytics fetched successfully", {
     summary: statsMap,

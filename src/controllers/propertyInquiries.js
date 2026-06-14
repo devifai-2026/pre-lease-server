@@ -7,8 +7,16 @@ const {
   SalesRelationship,
   PropertyNotificationEvent,
   PropertyMedia,
+  InquiryStage,
+  InquiryStatusHistory,
+  InquiryMessage,
 } = require("../models");
 const { autoAssignRole, clearGuestFlag } = require("../utils/roleHelper");
+const {
+  getDefaultStage,
+  pickLeastLoadedDealer,
+  findStickyDealer,
+} = require("../utils/inquiryAssignment");
 const createAppError = require("../utils/appError");
 const asyncHandler = require("../utils/asyncHandler");
 const { sendEncodedResponse } = require("../utils/responseEncoder");
@@ -89,6 +97,9 @@ const createPropertyInquiry = asyncHandler(async (req, res, next) => {
         }
       }
 
+      // Every new enquiry starts at the default "New" stage.
+      const defaultStage = await getDefaultStage(transaction);
+
       // Always create a new row
       const inquiryRecord = await PropertyInquiry.create(
         {
@@ -98,57 +109,63 @@ const createPropertyInquiry = asyncHandler(async (req, res, next) => {
           source: source || "direct",
           priority: priority || "medium",
           inquirerRoleType,
+          stageId: defaultStage ? defaultStage.id : null,
         },
         { transaction }
       );
 
-      // If this CLIENT (inquirerId) already has a dealer assigned on any other
-      // inquiry (across any property), auto-assign this new inquiry to the same dealer.
-      // Only auto-assign if:
-      //   1. The dealer is still active (isActive: true)
-      //   2. The dealer still holds the "Sales Executive - Client Dealer" role
-      // If the most recent dealer is gone / changed role → leave unassigned (frontend decides).
-      const existingAssigned = await PropertyInquiry.findOne({
-        where: {
-          inquirerId,             // same CLIENT, not same property
-          assignedTo: { [Op.not]: null },
-          id: { [Op.ne]: inquiryRecord.id },
-        },
-        attributes: ["assignedTo"],
-        order: [["assignedAt", "DESC"]],
-        transaction,
-      });
+      // Record the initial "New" stage in the enquiry timeline.
+      if (defaultStage) {
+        await InquiryStatusHistory.create(
+          {
+            inquiryId: inquiryRecord.id,
+            stageId: defaultStage.id,
+            stageName: defaultStage.name,
+            note: "Enquiry created",
+            changedBy: inquirerId,
+          },
+          { transaction }
+        );
+      }
 
-      if (existingAssigned) {
-        // Verify the previously assigned dealer is still active AND still a Client Dealer
-        const assigneeActive = await User.findOne({
-          where: { userId: existingAssigned.assignedTo, isActive: true },
-          include: [
-            {
-              model: Role,
-              as: "roles",
-              where: {
-                roleName: "Sales Executive - Client Dealer",
-                isActive: true,
-              },
-              required: true,
-              through: { attributes: [] },
-              attributes: [],
-            },
-          ],
-        });
+      // Sticky routing: keep this CLIENT (inquirerId) with the SAME Client Dealer
+      // they were FIRST assigned — across any property, broker or investor — so
+      // that dealer builds up context on the client. Later admin reassignments
+      // are ignored: we always anchor on the first-ever dealer. If that dealer is
+      // now inactive or no longer a Client Dealer, fall through to load balancing.
+      const stickyDealerId = await findStickyDealer(
+        inquirerId,
+        inquiryRecord.id,
+        transaction
+      );
 
-        if (assigneeActive) {
+      if (stickyDealerId) {
+        await inquiryRecord.update(
+          {
+            assignedTo: stickyDealerId,
+            assignedAt: new Date(),
+          },
+          { transaction }
+        );
+        autoAssignedTo = stickyDealerId;
+      }
+
+      // First-time client (or prior dealer gone): load-balance to the
+      // least-loaded active Client Dealer so every new enquiry gets an owner.
+      if (!autoAssignedTo) {
+        const balancedDealerId = await pickLeastLoadedDealer(transaction);
+        if (balancedDealerId) {
           await inquiryRecord.update(
             {
-              assignedTo: existingAssigned.assignedTo,
+              assignedTo: balancedDealerId,
+              assignedBy: inquirerId,
               assignedAt: new Date(),
             },
             { transaction }
           );
-          autoAssignedTo = existingAssigned.assignedTo;
+          autoAssignedTo = balancedDealerId;
         }
-        // If dealer is inactive or role changed → leave assignedTo = null, frontend decides
+        // If no active Client Dealer exists → leave unassigned for manual handling.
       }
 
       await transaction.commit();
@@ -634,67 +651,12 @@ const autoAssignInquiry = asyncHandler(async (req, res, next) => {
       throw createAppError("Inquiry not found", 404);
     }
 
-    // Find all users with roles eligible for auto-assignment
-    // (Sales Executive - Client Dealer and Sales Manager)
-    const AUTO_ASSIGN_ROLES = [
-      "Sales Executive - Client Dealer",
-      "Sales Manager",
-    ];
-
-    const clientDealers = await User.findAll({
-      where: { isActive: true },
-      attributes: ["userId"],
-      include: [
-        {
-          model: Role,
-          as: "roles",
-          through: { attributes: [] },
-          where: {
-            roleName: { [Op.in]: AUTO_ASSIGN_ROLES },
-            isActive: true,
-          },
-          attributes: [],
-        },
-      ],
-      transaction,
-    });
-
-    if (clientDealers.length === 0) {
-      throw createAppError(
-        "No active assignable users (Sales Manager / Client Dealer) found",
-        404
-      );
+    // Load-balance to the least-loaded active Client Dealer (shared logic).
+    // Enquiries are handled ONLY by Client Dealers.
+    const bestDealerId = await pickLeastLoadedDealer(transaction);
+    if (!bestDealerId) {
+      throw createAppError("No active Client Dealer found to assign the enquiry", 404);
     }
-
-    const dealerIds = clientDealers.map((u) => u.userId);
-
-    // Count active assignments per dealer
-    // We count inquiries that are NOT 'closed' or 'converted' maybe?
-    // Or just all assignments? Let's stick to simple count for now or all active.
-    const assignmentCounts = await PropertyInquiry.findAll({
-      where: {
-        assignedTo: { [Op.in]: dealerIds },
-      },
-      attributes: [
-        "assignedTo",
-        [sequelize.fn("COUNT", sequelize.col("id")), "count"],
-      ],
-      group: ["assignedTo"],
-      raw: true,
-      transaction,
-    });
-
-    const countMap = {};
-    assignmentCounts.forEach((row) => {
-      countMap[row.assignedTo] = parseInt(row.count);
-    });
-
-    // Find min
-    const bestDealerId = dealerIds.reduce((minId, id) => {
-      const count = countMap[id] || 0;
-      const minCount = countMap[minId] || 0;
-      return count < minCount ? id : minId;
-    }, dealerIds[0]);
 
     // Assign
     await inquiry.update(
@@ -869,15 +831,21 @@ const autoAssignInquiry = asyncHandler(async (req, res, next) => {
 // ============================================
 
 const getPendingInquiries = asyncHandler(async (req, res) => {
-  const { page = 1, limit = 10, priority } = req.query;
+  const { page = 1, limit = 10, priority, assignment } = req.query;
   const pageNumber = parseInt(page);
   const pageSize = parseInt(limit);
   const offset = (pageNumber - 1) * pageSize;
 
+  // The admin Work Board shows ALL active enquiries (assigned + unassigned).
+  // An optional `assignment` filter narrows it: "unassigned" | "assigned".
   const whereClause = {
-    assignedTo: null,
     ...(priority && { priority }),
   };
+  if (assignment === "unassigned") {
+    whereClause.assignedTo = null;
+  } else if (assignment === "assigned") {
+    whereClause.assignedTo = { [Op.not]: null };
+  }
 
   const { count, rows } = await PropertyInquiry.findAndCountAll({
     where: whereClause,
@@ -894,8 +862,24 @@ const getPendingInquiries = asyncHandler(async (req, res) => {
         attributes: ["userId", "firstName", "lastName", "email"],
         required: true,
       },
+      {
+        // Who the enquiry is assigned to (null when unassigned). Optional join
+        // so unassigned enquiries are still returned.
+        model: User,
+        as: "clientDealer",
+        attributes: ["userId", "firstName", "lastName", "email"],
+        required: false,
+      },
+      {
+        model: InquiryStage,
+        as: "stage",
+        attributes: ["id", "name", "color"],
+        required: false,
+      },
     ],
     order: [
+      // Unassigned first (they need attention), then by priority, then oldest.
+      [sequelize.literal('"PropertyInquiry"."assigned_to" IS NOT NULL'), "ASC"],
       ["priority", "DESC"],
       ["created_at", "ASC"],
     ],
@@ -907,7 +891,7 @@ const getPendingInquiries = asyncHandler(async (req, res) => {
     res,
     200,
     true,
-    "Pending inquiries fetched",
+    "Active inquiries fetched",
     rows,
     {
       pagination: {
@@ -995,6 +979,12 @@ const getAssignedInquiries = asyncHandler(async (req, res) => {
         attributes: ["firstName", "lastName", "email"],
         required: search ? true : false
       },
+      {
+        model: InquiryStage,
+        as: "stage",
+        attributes: ["id", "name", "color", "isTerminal"],
+        required: false,
+      },
     ],
     order: [
       ["priority", "DESC"],
@@ -1005,12 +995,65 @@ const getAssignedInquiries = asyncHandler(async (req, res) => {
     distinct: true,
   });
 
+  // Enquiry score = points of the HIGHEST stage reached (from the stage-change
+  // history), so revisiting an earlier stage doesn't lower a lead's score.
+  const enquiryIds = inquiries.map((i) => i.id);
+  const scoreMap = {};
+  if (enquiryIds.length) {
+    const scoreRows = await InquiryStatusHistory.findAll({
+      where: { inquiryId: { [Op.in]: enquiryIds } },
+      attributes: [
+        "inquiryId",
+        [sequelize.fn("MAX", sequelize.col("stage.score")), "maxScore"],
+      ],
+      include: [{ model: InquiryStage, as: "stage", attributes: [] }],
+      group: ["InquiryStatusHistory.inquiry_id"],
+      raw: true,
+    });
+    scoreRows.forEach((r) => {
+      scoreMap[r.inquiryId] = parseInt(r.maxScore, 10) || 0;
+    });
+  }
+  // Count unseen CLIENT messages per enquiry so the board can badge enquiries
+  // with a new reply. "Client" = the inquirer side (senderType "broker", which
+  // covers both broker and investor inquirers). A message is "unseen" if it was
+  // created after the dealer last opened the thread (dealerLastSeenAt), or the
+  // dealer has never opened it (dealerLastSeenAt is null).
+  const unreadMap = {};
+  if (enquiryIds.length) {
+    const clientMsgs = await InquiryMessage.findAll({
+      where: { inquiryId: { [Op.in]: enquiryIds }, senderType: "broker" },
+      attributes: ["inquiryId", "createdAt"],
+      raw: true,
+    });
+    const lastSeenById = {};
+    inquiries.forEach((i) => {
+      lastSeenById[i.id] = i.dealerLastSeenAt
+        ? new Date(i.dealerLastSeenAt).getTime()
+        : 0;
+    });
+    clientMsgs.forEach((m) => {
+      const seenTs = lastSeenById[m.inquiryId] ?? 0;
+      if (new Date(m.createdAt).getTime() > seenTs) {
+        unreadMap[m.inquiryId] = (unreadMap[m.inquiryId] || 0) + 1;
+      }
+    });
+  }
+
+  const enriched = inquiries.map((row) => {
+    const json = row.toJSON();
+    // Fall back to the current stage's score if there's no history yet.
+    json.score = scoreMap[json.id] ?? json.stage?.score ?? 0;
+    json.unreadClientMessages = unreadMap[json.id] || 0;
+    return json;
+  });
+
   return sendEncodedResponse(
     res,
     200,
     true,
     "Assigned inquiries fetched",
-    inquiries,
+    enriched,
     {
       pagination: {
         currentPage: pageNumber,
@@ -1065,12 +1108,36 @@ const getMyInquiries = asyncHandler(async (req, res, next) => {
     distinct: true,
   });
 
+  // Latest APPROVED message time per enquiry, so the dashboard can show an
+  // "update" badge (the inquirer only ever sees approved dealer messages).
+  const ids = inquiries.map((i) => i.id);
+  const latestMsgMap = {};
+  if (ids.length) {
+    const rows = await InquiryMessage.findAll({
+      where: { inquiryId: { [Op.in]: ids }, status: "approved" },
+      attributes: [
+        "inquiryId",
+        [sequelize.fn("MAX", sequelize.col("created_at")), "latest"],
+      ],
+      group: ["inquiryId"],
+      raw: true,
+    });
+    rows.forEach((r) => {
+      latestMsgMap[r.inquiryId] = r.latest;
+    });
+  }
+  const data = inquiries.map((row) => {
+    const json = row.toJSON();
+    json.latestMessageAt = latestMsgMap[json.id] || null;
+    return json;
+  });
+
   return sendEncodedResponse(
     res,
     200,
     true,
     "My inquiries fetched",
-    inquiries,
+    data,
     {
       pagination: {
         currentPage: pageNumber,

@@ -160,10 +160,32 @@ const ALLOWED_UPDATE_FIELDS = [
   "state",
   "demandDrivers",
   "upcomingDevelopments",
+  "faqs",
   "description",
   "otherAmenities",
   "maintainedById",
 ];
+
+// FAQs arrive as a JSON string via multipart FormData. Normalize to an array of
+// { question, answer } objects, dropping any entry without a question.
+const normalizeFaqs = (raw) => {
+  if (raw === undefined || raw === null || raw === "") return [];
+  let parsed = raw;
+  if (typeof raw === "string") {
+    try {
+      parsed = JSON.parse(raw);
+    } catch (e) {
+      return [];
+    }
+  }
+  if (!Array.isArray(parsed)) return [];
+  return parsed
+    .filter((f) => f && typeof f === "object" && String(f.question || "").trim())
+    .map((f) => ({
+      question: String(f.question).trim(),
+      answer: String(f.answer || "").trim(),
+    }));
+};
 
 const createProperty = asyncHandler(async (req, res, next) => {
   const requestStartTime = Date.now();
@@ -262,6 +284,7 @@ const createProperty = asyncHandler(async (req, res, next) => {
     state,
     demandDrivers,
     upcomingDevelopments,
+    faqs,
     description,
     otherAmenities,
     amenityIds,
@@ -407,6 +430,42 @@ const createProperty = asyncHandler(async (req, res, next) => {
       });
     }
 
+    let assignedSalesId = null;
+
+    // Sticky listing: keep this lister (owner/broker) with the SAME Property
+    // Manager their FIRST-EVER active listing was assigned to, so one PM builds
+    // up context on all of that person's properties. Anchored on the oldest
+    // assignment; if that PM is now inactive or no longer a Property Manager we
+    // fall through to load balancing below.
+    const firstListing = await Property.findOne({
+      where: {
+        [Op.or]: [{ ownerId: req.user.userId }, { brokerId: req.user.userId }],
+        salesId: { [Op.not]: null },
+      },
+      attributes: ["salesId"],
+      order: [["createdAt", "ASC"]],
+    });
+    if (firstListing) {
+      const stickyPm = await User.findOne({
+        where: { userId: firstListing.salesId, isActive: true },
+        attributes: ["userId"],
+        include: [
+          {
+            model: Role,
+            as: "roles",
+            through: { attributes: [] },
+            where: {
+              roleName: "Sales Executive - Property Manager",
+              isActive: true,
+            },
+            required: true,
+            attributes: [],
+          },
+        ],
+      });
+      if (stickyPm) assignedSalesId = stickyPm.userId;
+    }
+
     const salesUsers = await User.findAll({
       where: { isActive: true },
       attributes: ["userId"],
@@ -424,8 +483,8 @@ const createProperty = asyncHandler(async (req, res, next) => {
       ],
     });
 
-    let assignedSalesId = null;
-    if (salesUsers.length > 0) {
+    // Only load-balance when there's no sticky PM already chosen.
+    if (!assignedSalesId && salesUsers.length > 0) {
       const salesUserIds = salesUsers.map((u) => u.userId);
       const propertyCounts = await Property.findAll({
         where: { salesId: { [Op.in]: salesUserIds }, isActive: true },
@@ -497,6 +556,7 @@ const createProperty = asyncHandler(async (req, res, next) => {
         state,
         demandDrivers: demandDrivers || null,
         upcomingDevelopments: upcomingDevelopments || null,
+        faqs: normalizeFaqs(faqs),
         description: description || null,
         additionalDescription: otherAmenities || null,
         sellingPrice: sellingPrice || null,
@@ -856,6 +916,11 @@ const updateProperty = asyncHandler(async (req, res, next) => {
   }
   if (req.body.amenityIds && typeof req.body.amenityIds === "string") {
     req.body.amenityIds = parseIfNeeded(req.body.amenityIds);
+  }
+  if (req.body.faqs !== undefined) {
+    // Normalize FAQs (JSON string from FormData) into a clean array before the
+    // generic ALLOWED_UPDATE_FIELDS copy picks it up.
+    req.body.faqs = normalizeFaqs(req.body.faqs);
   }
 
   const requestBodyLog = {
