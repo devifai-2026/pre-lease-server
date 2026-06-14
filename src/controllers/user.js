@@ -15,11 +15,33 @@ const { sequelize } = require("../config/dbConnection");
 const { sendEncodedResponse } = require("../utils/responseEncoder");
 const otpService = require("../services/otpService");
 
-// Dummy OTP bypass is allowed ONLY in development. In staging/production the real
-// OTP service must verify. Set NODE_ENV=development locally to use DUMMY_OTP.
+// OTP length is 4 digits across the whole product.
+const OTP_LENGTH = 4;
+// Fixed bypass code used for admin logins and local development.
+const DUMMY_OTP = "1111";
 const isDevelopment = process.env.NODE_ENV === "development";
-const DUMMY_OTP = "111111";
-const isDummyOtpAllowed = (otp) => isDevelopment && otp === DUMMY_OTP;
+
+// Admin frontends authenticate with the fixed DUMMY_OTP (no real SMS), while the
+// consumer app uses real MessageCentral OTP in production. We tell them apart by
+// the request Origin/Referer. Admin origins are configurable via env
+// (ADMIN_ORIGINS, comma-separated) and default to the known admin host.
+const ADMIN_ORIGINS = (process.env.ADMIN_ORIGINS ||
+  "https://admin.preleasegrid.com")
+  .split(",")
+  .map((o) => o.trim().toLowerCase())
+  .filter(Boolean);
+
+const isAdminOrigin = (req) => {
+  const src = (req.headers.origin || req.headers.referer || "").toLowerCase();
+  if (!src) return false;
+  return ADMIN_ORIGINS.some((o) => src.startsWith(o));
+};
+
+// The fixed DUMMY_OTP is accepted when the request is from an admin frontend, or
+// in local development. Consumer (production) requests must verify via the real
+// OTP service.
+const isDummyOtpAllowed = (otp, req) =>
+  otp === DUMMY_OTP && (isDevelopment || isAdminOrigin(req));
 
 // ============================================
 // SEND OTP
@@ -43,11 +65,13 @@ const sendOtpHandler = asyncHandler(async (req, res, next) => {
         400
       );
     }
-    // In development we skip the real SMS send and return a dummy verificationId so
-    // the DUMMY_OTP can be used. In staging/production a real OTP is sent.
-    const result = isDevelopment
-      ? { verificationId: "dummy_id", timeout: "60.0" }
-      : await otpService.sendOtp(mobileNumber);
+    // Admin frontends (and local dev) skip the real SMS send and get a dummy
+    // verificationId so the fixed DUMMY_OTP works — no SMS cost. The consumer app
+    // in production sends a real OTP via MessageCentral.
+    const result =
+      isDevelopment || isAdminOrigin(req)
+        ? { verificationId: "dummy_id", timeout: "60.0" }
+        : await otpService.sendOtp(mobileNumber);
 
     await logRequest(
       req,
@@ -163,7 +187,7 @@ const signup = asyncHandler(async (req, res, next) => {
     }
 
     // ── Verify OTP ────────────────────────────────────────────────────────────
-    if (!isDummyOtpAllowed(otp)) {
+    if (!isDummyOtpAllowed(otp, req)) {
       await otpService.verifyOtp(verificationId, otp);
     }
 
@@ -462,7 +486,7 @@ const login = asyncHandler(async (req, res, next) => {
     }
 
     // TODO: Remove this after testing
-    if (!isDummyOtpAllowed(otp)) {
+    if (!isDummyOtpAllowed(otp, req)) {
       await otpService.verifyOtp(verificationId, otp);
     }
 
@@ -491,6 +515,19 @@ const login = asyncHandler(async (req, res, next) => {
 
     const roles = existingUser.roles || [];
     const primaryRole = roles[0]?.roleName || "guest";
+
+    // Admin / Super Admin accounts may sign in only from the admin frontend.
+    // Block them on the consumer app so an admin number can't log in as
+    // owner/investor/broker on the client side.
+    const isStaffAccount = roles.some((r) =>
+      ["Admin", "Super Admin"].includes(r.roleName)
+    );
+    if (isStaffAccount && !isAdminOrigin(req)) {
+      throw createAppError(
+        "This is an admin account. Please use the admin portal to sign in.",
+        403
+      );
+    }
 
     const refreshToken = Token.generateRefreshToken(existingUser.userId, primaryRole);
 
@@ -911,7 +948,7 @@ const verifyOtpHandler = asyncHandler(async (req, res, next) => {
     // Verify OTP via MessageCentral
     // TODO: Remove this after testing
     // await otpService.verifyOtp(verificationId, otp);
-    if (!isDummyOtpAllowed(otp)) {
+    if (!isDummyOtpAllowed(otp, req)) {
       await otpService.verifyOtp(verificationId, otp);
     }
 
@@ -1016,7 +1053,7 @@ const changeMobileNumber = asyncHandler(async (req, res, next) => {
     // Verify OTP
     // TODO: Remove this after testing
     // await otpService.verifyOtp(verificationId, otp);
-    if (!isDummyOtpAllowed(otp)) {
+    if (!isDummyOtpAllowed(otp, req)) {
       await otpService.verifyOtp(verificationId, otp);
     }
 

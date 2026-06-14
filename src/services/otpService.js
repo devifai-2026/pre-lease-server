@@ -4,11 +4,17 @@ const BASE_URL =
   process.env.MESSAGECENTRAL_BASE_URL || "https://cpaas.messagecentral.com";
 const CUSTOMER_ID = process.env.MESSAGECENTRAL_CUSTOMER_ID;
 const PASSWORD = process.env.MESSAGECENTRAL_PASSWORD;
+// A pre-generated, long-lived MessageCentral auth token. When set we use it
+// directly and skip the password-based token-generation call entirely.
+const STATIC_AUTH_TOKEN = process.env.MESSAGECENTRAL_AUTH_TOKEN;
 
 let cachedToken = null;
 let tokenExpiresAt = null;
 
 const getAuthToken = async () => {
+  // Prefer a pre-supplied static token (set via MESSAGECENTRAL_AUTH_TOKEN).
+  if (STATIC_AUTH_TOKEN) return STATIC_AUTH_TOKEN;
+
   // Return cached token if still valid (refresh 5 min before expiry)
   if (
     cachedToken &&
@@ -43,7 +49,7 @@ const getAuthToken = async () => {
 const sendOtp = async (mobileNumber) => {
   const token = await getAuthToken();
 
-  const url = `${BASE_URL}/verification/v3/send?countryCode=91&flowType=SMS&mobileNumber=${mobileNumber}&otpLength=6&customerId=${CUSTOMER_ID}`;
+  const url = `${BASE_URL}/verification/v3/send?countryCode=91&flowType=SMS&mobileNumber=${mobileNumber}&otpLength=4&customerId=${CUSTOMER_ID}`;
 
   const response = await fetch(url, {
     method: "POST",
