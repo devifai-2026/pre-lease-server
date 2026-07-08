@@ -13,6 +13,7 @@ const calculator = require("./calculator");
 const blog = require("./blog");
 const supportRequest = require("./supportRequest");
 const contactLead = require("./contactLead");
+const category = require("./category");
 
 router.use(user);
 router.use(property);
@@ -25,5 +26,6 @@ router.use(calculator);
 router.use(blog);
 router.use(supportRequest);
 router.use(contactLead);
+router.use(category);
 
 module.exports = router;

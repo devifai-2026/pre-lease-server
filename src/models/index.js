@@ -27,6 +27,7 @@ const BrokerProfile = require("./brokerProfile");
 const Blog = require("./blog");
 const SupportRequest = require("./supportRequest");
 const ContactLead = require("./contactLead");
+const Category = require("./category");
 
 // ============================================
 // USER & ROLE ASSOCIATIONS
@@ -508,4 +509,5 @@ module.exports = {
   Blog,
   SupportRequest,
   ContactLead,
+  Category,
 };
