@@ -58,6 +58,17 @@ const calculatePLG = asyncHandler(async (req, res, next) => {
     legalFees: Number(req.body.legalFees),
     brokerage: Number(req.body.brokerage),
     otherOneTimeCosts: Number(req.body.otherOneTimeCosts),
+    // Maintenance Lump Sum (Excel C13) — part of Total Initial Investment.
+    // Optional so existing callers that omit it default to 0.
+    maintenanceLumpSum: Number(req.body.maintenanceLumpSum) || 0,
+    // Assumed annual appreciation rate. Excel hardcodes 4%; here it is a caller
+    // input (fraction, e.g. 0.04). Defaults to 0.04 when not provided.
+    appreciationRatePercent:
+      req.body.appreciationRatePercent === undefined ||
+      req.body.appreciationRatePercent === null ||
+      req.body.appreciationRatePercent === ""
+        ? 0.04
+        : Number(req.body.appreciationRatePercent),
   };
 
   const msPerDay = 1000 * 60 * 60 * 24;
@@ -74,6 +85,8 @@ const calculatePLG = asyncHandler(async (req, res, next) => {
 
   const currentRent = n.monthlyRent * Math.pow(1 + n.rentEscalationPercent, leaseYearForCalc);
 
+  // Excel F16 "One Time Expense Total": property tax + insurance are grouped
+  // here with the true one-time costs, matching the source sheet.
   const oneTimeCosts =
     n.propertyTax +
     n.insurance +
@@ -82,7 +95,11 @@ const calculatePLG = asyncHandler(async (req, res, next) => {
     n.brokerage +
     n.otherOneTimeCosts;
 
-  const maintenanceCost = n.maintenancePerSqFtPerMonth * n.carpetArea * roundYearsLeft * 12;
+  // Excel F17 "Maintenance Cost" = C12 * C3 * (F5*12 + F6)
+  //   = perSqFt * area * (roundYearsLeft*12 + balanceMonths).
+  // The balance months of the current tenure must be included, not just whole years.
+  const maintenanceCost =
+    n.maintenancePerSqFtPerMonth * n.carpetArea * (roundYearsLeft * 12 + balanceMonths);
 
   const balanceCashFlow = balanceMonths * currentRent;
   const nextYearsCashFlow = -fv(n.rentEscalationPercent, roundYearsLeft, currentRent * 12, 0, 1);
@@ -93,6 +110,17 @@ const calculatePLG = asyncHandler(async (req, res, next) => {
   const totalExpenses = oneTimeCosts + maintenanceCost;
   const noi = totalCashFlows - totalExpenses;
   const roi = n.purchasePrice > 0 ? noi / n.purchasePrice : 0; // guard divide-by-zero
+
+  // Excel I18 "Appreciation (Assumed)" = C4 * (1 + rate) ^ (round years left in
+  // lease). The sheet hardcoded the rate (4%) and the exponent (7); here both are
+  // dynamic — rate from input, exponent from the remaining lease years.
+  const appreciation =
+    n.purchasePrice * Math.pow(1 + n.appreciationRatePercent, roundYearsLeft);
+
+  // Excel I19 "Total Initial Investment" = C4 + F16 + C13
+  //   = purchase price + one-time expense total + maintenance lump sum.
+  const totalInitialInvestment =
+    n.purchasePrice + oneTimeCosts + n.maintenanceLumpSum;
 
   const result = {
     inputs: {
@@ -128,7 +156,9 @@ const calculatePLG = asyncHandler(async (req, res, next) => {
       netOperatingIncome: round2(noi),
       roi: round2(roi),
       roiPercent: round2(roi * 100),
-      totalInitialInvestment: round2(n.purchasePrice + oneTimeCosts),
+      totalInitialInvestment: round2(totalInitialInvestment),
+      appreciation: round2(appreciation),
+      appreciationRatePercent: round2(n.appreciationRatePercent * 100),
     },
   };
 
@@ -179,7 +209,11 @@ const generateReport = asyncHandler(async (req, res, next) => {
 
   const currentRent = n.monthlyRent * Math.pow(1 + n.rentEscalationPercent, leaseYearForCalc);
   const oneTimeCosts = n.propertyTax + n.insurance + n.stampDutyPercent * n.purchasePrice + n.legalFees + n.brokerage + n.otherOneTimeCosts;
-  const maintenanceCost = n.maintenancePerSqFtPerMonth * n.carpetArea * roundYearsLeft * 12;
+  // Excel F17 "Maintenance Cost" = C12 * C3 * (F5*12 + F6)
+  //   = perSqFt * area * (roundYearsLeft*12 + balanceMonths).
+  // The balance months of the current tenure must be included, not just whole years.
+  const maintenanceCost =
+    n.maintenancePerSqFtPerMonth * n.carpetArea * (roundYearsLeft * 12 + balanceMonths);
   const balanceCashFlow = balanceMonths * currentRent;
   const nextYearsCashFlow = -fv(n.rentEscalationPercent, roundYearsLeft, currentRent * 12, 0, 1);
   const depositInterestCurrent = fv(0.065 / 12, balanceMonths, 0, -n.securityDeposit, 0) - n.securityDeposit;
