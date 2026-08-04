@@ -1779,9 +1779,13 @@ const getAllProperties = asyncHandler(async (req, res, next) => {
     }
 
     if (minROI || maxROI) {
-      whereClause.grossRentalYield = {};
-      if (minROI) whereClause.grossRentalYield[Op.gte] = parseFloat(minROI);
-      if (maxROI) whereClause.grossRentalYield[Op.lte] = parseFloat(maxROI);
+      // "ROI" is displayed app-wide (property cards, details, portfolio,
+      // comparison) as netRentalYield, so filter on the same field —
+      // otherwise a property can pass a "Min ROI" filter while showing a
+      // lower ROI on its own card (gross yield is always >= net yield).
+      whereClause.netRentalYield = {};
+      if (minROI) whereClause.netRentalYield[Op.gte] = parseFloat(minROI);
+      if (maxROI) whereClause.netRentalYield[Op.lte] = parseFloat(maxROI);
     }
 
     if (minTenure || maxTenure) {
@@ -2173,9 +2177,13 @@ const getAssignedProperties = asyncHandler(async (req, res, next) => {
     }
 
     if (minROI || maxROI) {
-      whereClause.grossRentalYield = {};
-      if (minROI) whereClause.grossRentalYield[Op.gte] = parseFloat(minROI);
-      if (maxROI) whereClause.grossRentalYield[Op.lte] = parseFloat(maxROI);
+      // "ROI" is displayed app-wide (property cards, details, portfolio,
+      // comparison) as netRentalYield, so filter on the same field —
+      // otherwise a property can pass a "Min ROI" filter while showing a
+      // lower ROI on its own card (gross yield is always >= net yield).
+      whereClause.netRentalYield = {};
+      if (minROI) whereClause.netRentalYield[Op.gte] = parseFloat(minROI);
+      if (maxROI) whereClause.netRentalYield[Op.lte] = parseFloat(maxROI);
     }
 
     if (minTenure || maxTenure) {
